@@ -1,0 +1,102 @@
+# Phase 4: Test Locally
+
+This phase guides the user through testing their Slack agent locally using ngrok.
+
+---
+
+## Step 4.1: Start the Dev Server
+
+```bash
+pnpm dev
+```
+
+This starts the Nitro server on http://localhost:3000.
+
+---
+
+## Step 4.2: Expose with ngrok
+
+In a **separate terminal**, create a tunnel to expose your local server:
+
+```bash
+ngrok http 3000
+```
+
+Copy the HTTPS URL (e.g., `https://abc123.ngrok.io`).
+
+**Note:** If the user doesn't have ngrok installed:
+> Install ngrok from https://ngrok.com/download or run `brew install ngrok` on macOS.
+
+---
+
+## Step 4.3: Update Slack App URL
+
+Ask the user for their ngrok URL:
+
+> **What's your ngrok URL?** (e.g., `https://abc123.ngrok.io`)
+
+Once they provide the URL, update the `manifest.json` file:
+
+1. Read the project's `manifest.json`
+2. Update these fields with the ngrok URL + `/api/slack/events`:
+   - `settings.event_subscriptions.request_url`
+   - `settings.interactivity.request_url`
+3. Write the updated `manifest.json`
+
+Then tell the user:
+
+> **Connect Slack to your local server:**
+>
+> 1. Go to your app at https://api.slack.com/apps
+> 2. Click on your app
+> 3. Go to **App Manifest** in the sidebar
+> 4. Switch to the **JSON** tab
+> 5. Replace the entire manifest with the content below
+> 6. Click **Save Changes**
+> 7. If prompted, click **Accept** to confirm the changes
+
+Display the full updated `manifest.json` content for the user to copy.
+
+---
+
+## Step 4.4: Test the Bot
+
+Tell the user:
+
+> **Test your agent:**
+>
+> 1. Open your Slack workspace
+> 2. Invite the bot to a channel: `/invite @YourBotName`
+> 3. Mention the bot: `@YourBotName hello!`
+> 4. You should see the request in your terminal and get a response
+
+Watch the terminal for any errors.
+
+---
+
+## Troubleshooting
+
+### "url_verification" failed
+- Make sure your server is running
+- Check the URL is correct (includes `/api/slack/events`)
+- Verify ngrok tunnel is active
+
+### "invalid_auth" error
+- Check SLACK_BOT_TOKEN is correct
+- Make sure it starts with `xoxb-`
+- Try reinstalling the app in Slack
+
+### "invalid_signature" error
+- Check SLACK_SIGNING_SECRET is correct
+- Make sure there's no extra whitespace
+
+### Bot doesn't respond
+- Check terminal/Vercel logs for errors
+- Verify bot is invited to the channel
+- Make sure Event Subscriptions URL is verified
+
+---
+
+## Next Phase
+
+Once local testing is successful, proceed to [Phase 5: Deploy to Production](./5-deploy-production.md).
