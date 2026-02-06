@@ -2,9 +2,20 @@
 
 Interactive wizard for building and deploying Slack agents on Vercel. This wizard guides users through the complete setup process from project creation to production deployment.
 
+## Key Feature: Custom Implementation Planning
+
+When starting a new project, the wizard generates a **custom implementation plan** tailored to the specific agent the user wants to build. Instead of a generic template setup, users get:
+
+- Specific slash commands for their use case
+- Appropriate AI tools and capabilities
+- Right-sized state management
+- Concrete file paths to create
+
+This plan is presented for approval before any code is cloned, allowing users to refine the scope before implementation.
+
 ## How to Use
 
-The wizard is divided into 6 phases. Based on the user's request and project state, determine which phase to start with:
+The wizard is divided into 7 phases. Based on the user's request and project state, determine which phase to start with:
 
 ### Command Arguments
 
@@ -29,7 +40,8 @@ Check the project state to determine the appropriate starting phase:
 
 ### Wizard Phases
 
-1. **[Project Setup](./1-project-setup.md)** - Clone template, choose LLM provider
+1. **[Project Setup](./1-project-setup.md)** - Understand purpose, generate implementation plan
+1b. **[Approve Plan](./1b-approve-plan.md)** - Review and approve custom implementation plan
 2. **[Create Slack App](./2-create-slack-app.md)** - Customize manifest, create app in Slack
 3. **[Configure Environment](./3-configure-environment.md)** - Set up .env with credentials
 4. **[Test Locally](./4-test-locally.md)** - Dev server + ngrok tunnel
@@ -41,6 +53,7 @@ Check the project state to determine the appropriate starting phase:
 Throughout the wizard, track these user choices for use in later phases:
 
 - **Agent purpose** - What the bot does (used for naming and manifest)
+- **Implementation plan** - The approved custom plan with features, commands, and tools
 - **Project name** - Directory name for the project
 - **LLM provider choice** - AI Gateway, direct provider, or none
 - **Slack credentials** - Bot token and signing secret (never display full values)
