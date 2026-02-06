@@ -7,6 +7,53 @@ user-invocable: true
 
 # Vercel Slack Agent Development Skill
 
+## Skill Invocation Handling
+
+When this skill is invoked via `/slack-agent`, check for arguments and route accordingly:
+
+### Command Arguments
+
+| Argument | Action |
+|----------|--------|
+| `new` | **Run the setup wizard from Phase 1.** Read `./wizard/1-project-setup.md` and guide the user through creating a new Slack agent. |
+| `configure` | Start wizard at Phase 2 or 3 for existing projects |
+| `deploy` | Start wizard at Phase 5 for production deployment |
+| `test` | Start wizard at Phase 6 to set up testing |
+| (no argument) | Auto-detect based on project state (see below) |
+
+### Auto-Detection (No Argument)
+
+If invoked without arguments, detect the project state and route appropriately:
+
+1. **No `package.json` with `@slack/bolt`** → Treat as `new`, start Phase 1
+2. **Has project but no customized `manifest.json`** → Start Phase 2
+3. **Has project but no `.env` file** → Start Phase 3
+4. **Has `.env` but not tested** → Start Phase 4
+5. **Tested but not deployed** → Start Phase 5
+6. **Otherwise** → Provide general assistance using this skill's patterns
+
+### Wizard Phases
+
+The wizard is located in `./wizard/` with these phases:
+- `1-project-setup.md` - Understand purpose, generate custom implementation plan
+- `1b-approve-plan.md` - Present plan for user approval before cloning
+- `2-create-slack-app.md` - Customize manifest, create app in Slack
+- `3-configure-environment.md` - Set up .env with credentials
+- `4-test-locally.md` - Dev server + ngrok tunnel
+- `5-deploy-production.md` - Vercel deployment
+- `6-setup-testing.md` - Vitest configuration
+
+**IMPORTANT:** For `new` projects, you MUST:
+1. Read `./wizard/1-project-setup.md` first
+2. Ask the user what kind of agent they want to build
+3. Generate a custom implementation plan using `./reference/agent-archetypes.md`
+4. Present the plan for approval (Phase 1b) BEFORE cloning the template
+5. Only proceed to clone after the plan is approved
+
+---
+
+## General Development Guidance
+
 You are working on a Slack agent project built with the Vercel Slack Agent Template. Follow these mandatory practices for all code changes.
 
 ## Project Stack
