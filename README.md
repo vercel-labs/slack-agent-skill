@@ -12,62 +12,17 @@ An agent-agnostic skill for building and deploying Slack agents on Vercel. This 
 
 ## Installation
 
-### For Claude Code
+### Via skills.sh (Recommended)
 
-Add this skill to your Claude Code configuration:
+Visit skills.sh https://skills.sh/ and search for  cls-audit , or install directly:
 
-```bash
-# Clone the skill repository
+npx skills add vercel-labs/slack-agent-skill
+
+### Manual Installation
+
+Clone the repository into your Claude Code skills directory:
+
 git clone https://github.com/vercel-labs/slack-agent-skill.git ~/.claude/skills/slack-agent-skill
-```
-
-Then reference it in your project's `.claude/settings.json`:
-
-```json
-{
-  "skills": [
-    "~/.claude/skills/slack-agent-skill/SKILL.md"
-  ]
-}
-```
-
-### Manual Reference
-
-You can also reference specific files directly when working with an AI assistant:
-
-- `SKILL.md` - Main development skill with quality standards
-- `wizard/README.md` - Interactive setup wizard
-- `patterns/` - Development patterns for testing and Slack APIs
-- `reference/` - Technical reference documentation
-
-## Repository Structure
-
-```
-slack-agent-skill/
-├── SKILL.md                           # Main skill (development standards)
-├── wizard/                            # Interactive setup wizard
-│   ├── README.md                      # Wizard overview
-│   ├── 1-project-setup.md             # Clone template, choose LLM
-│   ├── 2-create-slack-app.md          # Customize manifest, create app
-│   ├── 3-configure-environment.md     # Set up .env
-│   ├── 4-test-locally.md              # Dev server + ngrok
-│   ├── 5-deploy-production.md         # Vercel deployment
-│   └── 6-setup-testing.md             # Vitest configuration
-├── patterns/                          # Development patterns
-│   ├── testing-patterns.md            # Unit/E2E testing
-│   └── slack-patterns.md              # Slack Block Kit & APIs
-├── reference/                         # Technical reference
-│   ├── env-vars.md                    # Environment variables
-│   ├── ai-sdk.md                      # AI SDK integration
-│   ├── slack-setup.md                 # Slack app setup
-│   └── vercel-setup.md                # Vercel deployment
-└── templates/                         # Code templates
-    ├── vitest.config.ts               # Vitest configuration
-    ├── test-setup.ts                  # Test utilities
-    └── sample-tests/                  # Example tests
-        ├── agent.test.ts
-        └── tools.test.ts
-```
 
 ## Usage
 
@@ -96,7 +51,7 @@ When working on an existing Slack agent project, the skill automatically provide
 - AI integration guidance (Vercel AI Gateway, direct providers)
 - Deployment best practices
 
-### Key Commands
+## Key Commands
 
 ```bash
 # Development
@@ -123,32 +78,6 @@ The skill enforces these requirements:
 - **Linting** must pass (Biome)
 - **TypeScript** must compile without errors
 - **All tests** must pass before completion
-
-## AI Integration Options
-
-### Vercel AI Gateway (Recommended)
-
-No API keys needed when deployed on Vercel:
-
-```typescript
-import { generateText } from "ai";
-import { gateway } from "@ai-sdk/gateway";
-
-const result = await generateText({
-  model: gateway("openai/gpt-4o-mini"),
-  prompt: "Your prompt",
-});
-```
-
-### Direct Provider SDKs
-
-For more control or non-Vercel deployments:
-
-```typescript
-import { openai } from "@ai-sdk/openai";
-import { anthropic } from "@ai-sdk/anthropic";
-import { google } from "@ai-sdk/google";
-```
 
 ## Related Resources
 
