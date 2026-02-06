@@ -23,6 +23,8 @@ Before cloning the template, ask the user what they're building:
 > **What kind of Slack agent are you building?**
 >
 > Examples: joke bot, support assistant, weather bot, task manager, standup bot, etc.
+>
+> Tell me what you want your agent to do, and I'll create a custom implementation plan for you.
 
 Based on their response, generate a recommended project name:
 - "joke bot" -> `joke-slack-agent`
@@ -35,7 +37,53 @@ Use the pattern: `<purpose>-slack-agent` (lowercase, hyphens, no spaces).
 
 **Store this context** - you'll use it for manifest customization in Phase 2.
 
-### Step 1.2: Choose LLM Provider (if using AI)
+### Step 1.2: Generate Custom Implementation Plan
+
+Based on the user's stated purpose, generate a custom implementation plan tailored to their specific agent.
+
+**Reference document:** See `reference/agent-archetypes.md` for common patterns and the plan template.
+
+**Instructions for plan generation:**
+
+1. **Analyze the agent purpose** to identify:
+   - Primary interaction patterns (slash commands, mentions, DMs, scheduled)
+   - Whether AI/LLM is needed and what for
+   - State requirements (stateless, conversational, persistent)
+   - UI needs (simple text, Block Kit, modals)
+   - External integrations needed (APIs, webhooks, databases)
+
+2. **Match to archetypes** from the reference document:
+   - Standup/Reminder Bot
+   - Support/Help Desk Bot
+   - Information/Lookup Bot
+   - Conversational AI Bot
+   - Automation Bot
+   - Notification/Alerting Bot
+   - Or combine multiple archetypes for hybrid agents
+
+3. **Generate a specific plan** using the template structure:
+   - Overview (1-2 sentences)
+   - Core Features (3-5 specific features)
+   - Slash Commands (with names, descriptions, examples)
+   - Event Handlers (what triggers the bot)
+   - AI Tools (if using AI - with specific tool names and parameters)
+   - Scheduled Jobs (if applicable - with cron expressions)
+   - State Management (stateless, workflow, or database)
+   - Block Kit UI (what UI elements are needed)
+   - Files to Create/Modify (specific file paths)
+
+4. **Include complexity indicator:**
+   - **Simple** - 1-2 commands, no database, can be built quickly
+   - **Medium** - Multiple commands, some state, moderate effort
+   - **Complex** - Multi-turn workflows, database, scheduled jobs
+
+**After generating the plan**, proceed to [Phase 1b: Approve Plan](./1b-approve-plan.md) to present it to the user for approval.
+
+---
+
+### Step 1.3: Choose LLM Provider (if using AI)
+
+> **Note:** Only proceed to this step after the implementation plan has been approved in [Phase 1b](./1b-approve-plan.md).
 
 Ask the user if their agent will use AI/LLM capabilities:
 
@@ -73,7 +121,7 @@ Based on their choice:
 
 **Store this context** - you'll use it for environment configuration in Phase 3.
 
-### Step 1.3: Clone the Template
+### Step 1.4: Clone the Template
 
 Clone the official Slack Agent Template with the recommended name:
 
