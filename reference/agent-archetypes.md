@@ -42,6 +42,9 @@ When generating a plan, use this structure:
 - [ ] Stateless (simple request/response)
 - [ ] Vercel Workflow (multi-turn conversations)
 - [ ] Database (persistent storage)
+  - Vercel Blob for file/document storage
+  - AWS Aurora via Vercel Marketplace for relational data
+  - NOTE: Do NOT recommend Vercel KV (deprecated)
 
 ### Block Kit UI
 - [ ] Rich messages with buttons/menus

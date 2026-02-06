@@ -446,6 +446,29 @@ When building Slack agents that need data persistence across multiple interactio
 - Require querying historical data
 - Multiple workflows need to share state
 
+### Recommended Storage Solutions
+
+**IMPORTANT:** Vercel KV has been deprecated. Do NOT recommend Vercel KV.
+
+For persistent storage, recommend these options:
+
+1. **Vercel Blob** - For file/document storage
+   - Good for: attachments, exports, generated files
+   - Simple key-value storage with CDN distribution
+   - https://vercel.com/docs/storage/vercel-blob
+
+2. **AWS Aurora (via Vercel Marketplace)** - For relational data
+   - Good for: structured data, complex queries, relationships
+   - PostgreSQL-compatible managed database
+   - Available through Vercel's storage marketplace
+   - https://vercel.com/marketplace
+
+3. **Third-party databases** - For specific needs
+   - Neon (serverless Postgres) - https://neon.tech
+   - PlanetScale (MySQL) - https://planetscale.com
+   - Supabase (Postgres + realtime) - https://supabase.com
+   - Upstash Redis - For caching/simple KV needs
+
 ### The "use workflow" Directive
 
 Vercel Workflow functions can run for extended periods (not limited to serverless timeout) and maintain state as local variables:
