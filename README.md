@@ -14,8 +14,6 @@ An agent-agnostic skill for building and deploying Slack agents on Vercel. This 
 
 ### Via skills.sh (Recommended)
 
-Visit skills.sh https://skills.sh/ and search for  cls-audit , or install directly:
-
 npx skills add vercel-labs/slack-agent-skill
 
 ### Manual Installation
