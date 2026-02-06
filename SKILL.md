@@ -1,8 +1,8 @@
 ---
-name: slack-agent-dev
+name: slack-agent
 description: Use when working on Slack agent/bot code, Slack Bolt applications, or projects using the slack-agent-template. Provides development patterns, testing requirements, and quality standards.
 version: 2.0.0
-user-invocable: false
+user-invocable: true
 ---
 
 # Vercel Slack Agent Development Skill

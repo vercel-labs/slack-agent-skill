@@ -28,10 +28,16 @@ git clone https://github.com/vercel-labs/slack-agent-skill.git ~/.claude/skills/
 
 ### Starting a New Project
 
-Ask your AI assistant to run the setup wizard:
+Run the slash command:
 
 ```
-Help me create a new Slack agent using the wizard
+/slack-agent
+
+Or with arguments:
+/slack-agent new       # Start fresh project
+/slack-agent configure # Configure existing project
+/slack-agent deploy    # Deploy to production
+/slack-agent test      # Set up testing
 ```
 
 The wizard will guide you through:
