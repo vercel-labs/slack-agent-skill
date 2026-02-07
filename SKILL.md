@@ -340,6 +340,44 @@ Common schedules:
 - `0 0 * * *` - Daily at midnight
 - `0 9 * * 1-5` - Weekdays at 9am
 
+### 7. AWS Credentials on Vercel (Use OIDC)
+
+When connecting to AWS services (Aurora, S3, etc.) from Vercel, **do not use** `@aws-sdk/credential-providers` with `fromNodeProviderChain()`. It won't work because Vercel uses its own OIDC token mechanism.
+
+**Wrong approach:**
+```typescript
+import { fromNodeProviderChain } from "@aws-sdk/credential-providers";
+
+const credentials = fromNodeProviderChain(); // Won't work on Vercel!
+```
+
+**Correct approach:**
+```typescript
+import { awsCredentialsProvider } from "@vercel/functions/oidc";
+
+// For AWS RDS/Aurora with IAM auth
+const signer = new Signer({
+  hostname: process.env.PGHOST,
+  port: Number(process.env.PGPORT),
+  username: process.env.PGUSER,
+  region: process.env.AWS_REGION,
+  credentials: awsCredentialsProvider({ roleArn: process.env.AWS_ROLE_ARN! }),
+});
+const token = await signer.getAuthToken();
+
+// For other AWS services (S3, etc.)
+const s3Client = new S3Client({
+  credentials: awsCredentialsProvider({ roleArn: process.env.AWS_ROLE_ARN! }),
+});
+```
+
+**Required setup:**
+1. Enable Vercel OIDC in Project Settings > Security
+2. Configure AWS IAM trust relationship for your Vercel project
+3. Set `AWS_ROLE_ARN` environment variable in Vercel
+
+**Reference:** [Vercel OIDC for AWS](https://vercel.com/docs/security/oidc/aws)
+
 ---
 
 ## AI Integration
