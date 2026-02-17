@@ -440,12 +440,17 @@ await client.chat.postMessage({
 
 ## Typing Indicators
 
-### Showing Typing Status
+**Always use typing indicators** to keep Slack users informed of your agent's status. This provides a better user experience and prevents users from thinking the bot is unresponsive.
+
+### 30-Second Timeout
+
+Slack's typing indicator automatically expires after **30 seconds**. For long-running operations, you must call `setStatus` again to refresh the indicator.
+
+### Basic Usage
 
 ```typescript
 // For Assistant threads
 app.event('assistant_thread_started', async ({ event, client }) => {
-  // Set typing status
   await client.assistant.threads.setStatus({
     channel_id: event.channel,
     thread_ts: event.thread_ts,
@@ -454,9 +459,65 @@ app.event('assistant_thread_started', async ({ event, client }) => {
 
   // Process...
 
-  // Clear status (happens automatically when you respond)
+  // Status clears automatically when you respond
 });
 ```
+
+### Refreshing Status for Long Operations
+
+For operations that may take longer than 30 seconds, refresh the status periodically:
+
+```typescript
+async function withTypingIndicator<T>(
+  client: WebClient,
+  channelId: string,
+  threadTs: string,
+  status: string,
+  operation: () => Promise<T>
+): Promise<T> {
+  // Set initial status
+  await client.assistant.threads.setStatus({
+    channel_id: channelId,
+    thread_ts: threadTs,
+    status,
+  });
+
+  // Refresh status every 25 seconds (before 30s timeout)
+  const refreshInterval = setInterval(async () => {
+    await client.assistant.threads.setStatus({
+      channel_id: channelId,
+      thread_ts: threadTs,
+      status,
+    });
+  }, 25000);
+
+  try {
+    return await operation();
+  } finally {
+    clearInterval(refreshInterval);
+  }
+}
+
+// Usage
+const result = await withTypingIndicator(
+  client,
+  event.channel,
+  event.thread_ts,
+  'is researching...',
+  async () => {
+    // Long-running operation here
+    return await performResearch();
+  }
+);
+```
+
+### Status Message Examples
+
+Use descriptive status messages to keep users informed:
+- `'is thinking...'` - General processing
+- `'is researching...'` - Searching or fetching data
+- `'is writing...'` - Generating content
+- `'is analyzing...'` - Processing complex data
 
 ## Best Practices Summary
 
