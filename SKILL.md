@@ -60,7 +60,7 @@ You are working on a Slack agent project built with the Vercel Slack Agent Templ
 
 This project uses:
 - **Server**: Nitro (H3-based) with file-based routing
-- **Slack SDK**: Bolt for JavaScript v4.x
+- **Slack SDK**: `@vercel/slack-bolt` for serverless Slack apps (wraps Bolt for JavaScript)
 - **AI**: AI SDK v6 with @ai-sdk/gateway
 - **Workflows**: Workflow DevKit for durable execution
 - **Linting**: Biome
@@ -74,6 +74,7 @@ This project uses:
     "ai": "^6.0.0",
     "@ai-sdk/gateway": "latest",
     "@slack/bolt": "^4.x",
+    "@vercel/slack-bolt": "^1.0.2",
     "zod": "^3.x"
   }
 }
@@ -156,113 +157,63 @@ You MUST add or update E2E tests that verify the full flow.
 
 ## Events Endpoint Pattern (CRITICAL)
 
-The events endpoint must handle BOTH JSON events AND form-urlencoded slash commands.
+Use `@vercel/slack-bolt` to handle all Slack events. This package automatically handles:
+- Content-type detection (JSON vs form-urlencoded)
+- URL verification challenges
+- 3-second ack timeout (built-in `ackTimeoutMs: 3001`)
+- Background processing via Vercel Fluid Compute's `waitUntil`
 
-### Complete Events Handler
+### Bolt App Setup
+
+```typescript
+// server/bolt/app.ts
+import { App } from "@slack/bolt";
+import { VercelReceiver } from "@vercel/slack-bolt";
+
+const receiver = new VercelReceiver();
+const app = new App({
+  token: process.env.SLACK_BOT_TOKEN,
+  signingSecret: process.env.SLACK_SIGNING_SECRET,
+  receiver,
+  deferInitialization: true,
+});
+
+export { app, receiver };
+```
+
+### Events Handler
 
 ```typescript
 // server/api/slack/events.post.ts
-import { defineEventHandler, getHeader, readRawBody } from "h3";
-import { app } from "../../app";
+import { createHandler } from "@vercel/slack-bolt";
+import { eventHandler, toWebRequest } from "h3";
+import { app, receiver } from "../../bolt/app";
 
-export default defineEventHandler(async (event) => {
-  const rawBody = (await readRawBody(event)) ?? "";
-  const contentType = getHeader(event, "content-type") ?? "";
-  const isFormData = contentType.includes("application/x-www-form-urlencoded");
-
-  // CRITICAL: Slash commands use form-urlencoded, NOT JSON
-  if (isFormData) {
-    const params = new URLSearchParams(rawBody);
-    const formData: Record<string, string> = {};
-    for (const [key, value] of params) {
-      formData[key] = value;
-    }
-
-    if (formData["command"]) {
-      // For async commands using respond(), return empty string
-      // Returning ANY JSON causes "invalid_command_response" error
-      let ackResponse: unknown = "";
-
-      await app.processEvent({
-        body: { ...formData, type: "slash_command" },
-        ack: async (response) => {
-          // Only set if ack() was called WITH a response (sync pattern)
-          if (response !== undefined) {
-            ackResponse = response;
-          }
-        },
-        respond: async (response) => {
-          // Post to response_url for async responses
-          await fetch(formData["response_url"], {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(response),
-          });
-        },
-      });
-
-      return ackResponse; // Empty string = 200 OK with no body
-    }
-  }
-
-  // JSON events (mentions, messages, interactions, etc.)
-  const body = JSON.parse(rawBody);
-
-  // Handle URL verification challenge
-  if (body.type === "url_verification") {
-    return { challenge: body.challenge };
-  }
-
-  // Process Slack events
-  await app.processEvent({
-    body,
-    ack: async (response) => response,
-  });
-
-  return { ok: true };
-});
+const handler = createHandler(app, receiver);
+export default eventHandler(async (event) => handler(toWebRequest(event)));
 ```
 
-### Key Points
+### VercelReceiver Options Reference
 
-1. **Check Content-Type** - Slash commands are `application/x-www-form-urlencoded`
-2. **Parse with URLSearchParams** - NOT `JSON.parse()` for form data
-3. **Return empty for async** - When using `respond()` after `ack()`, return `""` not JSON
-4. **Handle url_verification** - Return the challenge for Slack's URL verification
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `signingSecret` | `SLACK_SIGNING_SECRET` env var | Request verification secret |
+| `signatureVerification` | `true` | Enable/disable signature verification |
+| `ackTimeoutMs` | `3001` | Ack timeout in milliseconds |
+| `logLevel` | `INFO` | Logging level |
+
+### Key Benefits
+
+1. **60+ lines of boilerplate eliminated** - No manual content-type detection, URL verification, or form parsing
+2. **Automatic timeout handling** - Built-in 3-second ack with `ackTimeoutMs: 3001`
+3. **Background processing** - Uses Vercel Fluid Compute's `waitUntil` automatically
+4. **Framework support** - Works with Next.js, Hono, and Nitro (H3)
 
 ---
 
 ## Implementation Gotchas
 
-### 1. Slash Commands Use Form-Encoded Data, Not JSON
-
-Slack sends slash commands as `application/x-www-form-urlencoded`, not JSON. Always check the content-type header:
-
-```typescript
-const contentType = getHeader(event, "content-type") ?? "";
-if (contentType.includes("application/x-www-form-urlencoded")) {
-  const formData = new URLSearchParams(rawBody);
-  // Parse as slash command
-}
-```
-
-### 2. Async Slash Commands Must Return Empty 200
-
-When a slash command uses `respond()` asynchronously after `ack()`, the initial HTTP response **must be an empty string**, NOT a JSON object. Returning `{ ok: true }` causes `invalid_command_response` errors.
-
-```typescript
-// WRONG - causes error
-await ack();
-await respond({ text: "..." });
-return { ok: true };
-
-// CORRECT - empty 200 response
-await ack();
-await respond({ text: "..." });
-return "";
-```
-
-### 3. Private Channel Access
+### 1. Private Channel Access
 
 Slash commands work in private channels even if the bot isn't a member, but the bot **cannot read messages or post** to private channels it hasn't been invited to.
 
@@ -280,7 +231,7 @@ if (channelInfo.channel?.is_private && !channelInfo.channel?.is_member) {
 }
 ```
 
-### 4. Graceful Degradation for Channel Context
+### 2. Graceful Degradation for Channel Context
 
 When fetching channel context for AI features, wrap in try/catch and fall back gracefully:
 
@@ -298,7 +249,7 @@ try {
 }
 ```
 
-### 5. Vercel Cron Endpoint Authentication
+### 3. Vercel Cron Endpoint Authentication
 
 Protect cron endpoints with a `CRON_SECRET` environment variable:
 
@@ -317,7 +268,7 @@ export default defineEventHandler(async (event) => {
 });
 ```
 
-### 6. vercel.json Cron Configuration
+### 4. vercel.json Cron Configuration
 
 Configure cron jobs in `vercel.json`:
 
@@ -340,7 +291,7 @@ Common schedules:
 - `0 0 * * *` - Daily at midnight
 - `0 9 * * 1-5` - Weekdays at 9am
 
-### 7. AWS Credentials on Vercel (Use OIDC)
+### 5. AWS Credentials on Vercel (Use OIDC)
 
 When connecting to AWS services (Aurora, S3, etc.) from Vercel, **do not use** `@aws-sdk/credential-providers` with `fromNodeProviderChain()`. It won't work because Vercel uses its own OIDC token mechanism.
 

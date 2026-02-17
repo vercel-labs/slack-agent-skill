@@ -126,79 +126,54 @@ Slack doesn't support markdown lists, use:
 1. Numbered manually
 ```
 
-## Events Endpoint (CRITICAL)
+## Events Endpoint
 
-The Slack events endpoint must handle multiple content types. This is a common source of bugs.
+Use `@vercel/slack-bolt` for all Slack event handling. This package automatically handles:
+- Content-type detection (JSON vs form-urlencoded)
+- URL verification challenges
+- 3-second ack timeout (built-in `ackTimeoutMs: 3001`)
+- Background processing via Vercel Fluid Compute's `waitUntil`
 
-### Complete Events Handler
+### Bolt App Setup
+
+```typescript
+// server/bolt/app.ts
+import { App } from "@slack/bolt";
+import { VercelReceiver } from "@vercel/slack-bolt";
+
+const receiver = new VercelReceiver();
+const app = new App({
+  token: process.env.SLACK_BOT_TOKEN,
+  signingSecret: process.env.SLACK_SIGNING_SECRET,
+  receiver,
+  deferInitialization: true,
+});
+
+export { app, receiver };
+```
+
+### Events Handler
 
 ```typescript
 // server/api/slack/events.post.ts
-import { defineEventHandler, getHeader, readRawBody } from "h3";
-import { app } from "../../app";
+import { createHandler } from "@vercel/slack-bolt";
+import { eventHandler, toWebRequest } from "h3";
+import { app, receiver } from "../../bolt/app";
 
-export default defineEventHandler(async (event) => {
-  const rawBody = (await readRawBody(event)) ?? "";
-  const contentType = getHeader(event, "content-type") ?? "";
-  const isFormData = contentType.includes("application/x-www-form-urlencoded");
-
-  // CRITICAL: Slash commands use form-urlencoded, NOT JSON!
-  if (isFormData) {
-    const params = new URLSearchParams(rawBody);
-    const formData: Record<string, string> = {};
-    for (const [key, value] of params) {
-      formData[key] = value;
-    }
-
-    if (formData["command"]) {
-      // For async commands, return empty string (not JSON!)
-      let ackResponse: unknown = "";
-
-      await app.processEvent({
-        body: { ...formData, type: "slash_command" },
-        ack: async (response) => {
-          if (response !== undefined) {
-            ackResponse = response;
-          }
-        },
-        respond: async (response) => {
-          await fetch(formData["response_url"], {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(response),
-          });
-        },
-      });
-
-      return ackResponse; // Empty string = 200 with no body
-    }
-  }
-
-  // JSON events (mentions, messages, interactions)
-  const body = JSON.parse(rawBody);
-
-  // URL verification challenge
-  if (body.type === "url_verification") {
-    return { challenge: body.challenge };
-  }
-
-  await app.processEvent({
-    body,
-    ack: async (response) => response,
-  });
-
-  return { ok: true };
-});
+const handler = createHandler(app, receiver);
+export default eventHandler(async (event) => handler(toWebRequest(event)));
 ```
 
 ### Content Type Reference
 
-| Event Type | Content-Type | Body Format |
-|------------|--------------|-------------|
-| Slash commands | `application/x-www-form-urlencoded` | URL-encoded |
-| Events API | `application/json` | JSON |
-| Interactivity | `application/json` | JSON |
-| URL verification | `application/json` | JSON |
+`@vercel/slack-bolt` automatically handles all content types:
+
+| Event Type | Content-Type | Handled Automatically |
+|------------|--------------|----------------------|
+| Slash commands | `application/x-www-form-urlencoded` | ✅ |
+| Events API | `application/json` | ✅ |
+| Interactivity | `application/json` | ✅ |
+| URL verification | `application/json` | ✅ |
 
 ## Event Handling Patterns
 
@@ -284,22 +259,11 @@ export function registerSampleCommand(app: App) {
 }
 ```
 
-**CRITICAL: Async Response Pattern**
-
-When using `respond()` after `ack()`, the events endpoint MUST return an empty response. Returning ANY JSON payload causes `"invalid_command_response"` error from Slack.
-
-```typescript
-// In your events.post.ts handler for slash commands:
-await ack();              // Acknowledge immediately (no response)
-await respond({ ... });   // Send via response_url
-return "";                // MUST return empty string, NOT JSON!
-```
-
 **Sync vs Async Pattern:**
 - **Sync**: `await ack({ text: "Response" })` - immediate response in ack
 - **Async**: `await ack()` then `await respond({...})` - deferred response
 
-For async commands doing AI processing, always use the async pattern.
+For async commands doing AI processing, always use the async pattern. When using `@vercel/slack-bolt`, the response handling is automatic—no manual empty response needed.
 
 ## Action Handlers
 

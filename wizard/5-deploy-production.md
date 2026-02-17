@@ -144,10 +144,6 @@ Tell the user:
 - Check SLACK_BOT_TOKEN is correct in Vercel environment variables
 - Make sure you redeployed after adding the variables
 
-### "invalid_command_response" error
-- The events endpoint must return empty string for async slash commands
-- See SKILL.md for the correct pattern
-
 ---
 
 ## Next Phase (Optional)
