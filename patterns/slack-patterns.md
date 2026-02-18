@@ -157,12 +157,28 @@ export { app, receiver };
 ```typescript
 // server/api/slack/events.post.ts
 import { createHandler } from "@vercel/slack-bolt";
-import { eventHandler, toWebRequest } from "h3";
+import { defineEventHandler, getRequestURL, readRawBody } from "h3";
 import { app, receiver } from "../../bolt/app";
 
 const handler = createHandler(app, receiver);
-export default eventHandler(async (event) => handler(toWebRequest(event)));
+
+export default defineEventHandler(async (event) => {
+  // Read and cache the raw body first to avoid stream consumption issues
+  // with toWebRequest on serverless platforms (h3 issues #570, #578, #615)
+  const rawBody = await readRawBody(event, "utf8");
+
+  // Create a new Request with the buffered body
+  const request = new Request(getRequestURL(event), {
+    method: event.method,
+    headers: event.headers,
+    body: rawBody,
+  });
+
+  return await handler(request);
+});
 ```
+
+**Why this pattern?** H3's `toWebRequest()` has known issues where it eagerly consumes the request body stream, causing `dispatch_failed` errors on serverless platforms.
 
 ### Content Type Reference
 
@@ -264,6 +280,79 @@ export function registerSampleCommand(app: App) {
 - **Async**: `await ack()` then `await respond({...})` - deferred response
 
 For async commands doing AI processing, always use the async pattern. When using `@vercel/slack-bolt`, the response handling is automatic—no manual empty response needed.
+
+### Long-Running Slash Commands (AI, API calls)
+
+**CRITICAL:** If your slash command does AI processing or makes slow API calls, you MUST use the fire-and-forget pattern to avoid `operation_timeout` errors.
+
+**Why this matters:** Even with `await ack()`, the HTTP response doesn't return until your entire handler function completes. If you `await` AI generation after `ack()`, Slack times out after 3 seconds.
+
+```typescript
+// server/listeners/commands/ai-command.ts
+import type { App } from '@slack/bolt';
+import type { Logger } from '@slack/bolt';
+
+export function registerAICommand(app: App) {
+  app.command('/ai-command', async ({ ack, command, logger }) => {
+    // 1. Acknowledge immediately - this MUST happen first
+    await ack();
+
+    // 2. Fire-and-forget: Start async work WITHOUT awaiting
+    // The HTTP response returns immediately after this line
+    processInBackground(command.response_url, command.text, command.user_id, logger)
+      .catch((error) => {
+        logger.error("Background processing failed:", error);
+      });
+  });
+}
+
+async function processInBackground(
+  responseUrl: string,
+  text: string,
+  userId: string,
+  logger: Logger
+) {
+  try {
+    // This can take as long as needed - we're not blocking the HTTP response
+    const result = await generateWithAI(text);
+
+    // Post result via response_url (valid for 30 minutes)
+    await fetch(responseUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        response_type: "in_channel",
+        text: result,
+      }),
+    });
+  } catch (error) {
+    logger.error("AI processing failed:", error);
+
+    // Always send an error response so the user knows what happened
+    await fetch(responseUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        response_type: "ephemeral",
+        text: "Sorry, something went wrong processing your request.",
+      }),
+    });
+  }
+}
+```
+
+**When to Use Each Pattern:**
+
+| Pattern | Use Case | Example |
+|---------|----------|---------|
+| **Sync** (`await ack({ text })`) | Instant responses, simple lookups | `/help`, `/status` |
+| **Async** (`await ack()` + `await respond()`) | Quick operations (<3 sec) | `/search keyword` |
+| **Fire-and-forget** (`await ack()` + no await) | AI/LLM, slow APIs, long processing | `/generate`, `/analyze` |
+
+**Key points:**
+- The `response_url` from the command payload is valid for **30 minutes**
+- Always handle errors in your background function - the user won't see exceptions
+- Consider posting an initial "Processing..." message via `respond()` if the operation takes more than a few seconds
 
 ## Action Handlers
 
@@ -529,3 +618,5 @@ Use descriptive status messages to keep users informed:
 6. **Validate inputs** before processing
 7. **Use ephemeral messages** for sensitive or temporary information
 8. **Log errors** with context for debugging
+9. **Buffer request body** in events handler to avoid H3 stream consumption issues
+10. **Use fire-and-forget** for slash commands with AI/long operations (>3 sec)
