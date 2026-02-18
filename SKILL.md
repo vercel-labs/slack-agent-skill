@@ -335,6 +335,8 @@ const s3Client = new S3Client({
 
 You have two options for AI/LLM integration in your Slack agent.
 
+> **⚠️ IMPORTANT:** Always verify the cloned template uses `@ai-sdk/gateway`. The template may ship with `@ai-sdk/openai` which requires an API key. After cloning, check `package.json` and update imports if necessary.
+
 ### Option 1: Vercel AI Gateway (Recommended)
 
 Use the modern `@ai-sdk/gateway` package - NO API keys needed on Vercel!
@@ -854,4 +856,4 @@ Before marking ANY task as complete, verify:
 - [ ] No hardcoded credentials
 - [ ] Follows existing code patterns
 - [ ] Events endpoint handles both JSON and form-urlencoded
-- [ ] Using @ai-sdk/gateway (recommended) or direct provider SDK with appropriate API key
+- [ ] Verified AI SDK: using `@ai-sdk/gateway` (not `@ai-sdk/openai`) unless user explicitly chose direct provider

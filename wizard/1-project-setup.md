@@ -140,6 +140,35 @@ git commit -m "Initial commit from slack-agent-template"
 
 Ask the user to confirm or customize the project name before proceeding.
 
+### Step 1.5: Verify AI SDK Configuration
+
+After cloning, verify and update the AI SDK configuration based on the provider choice from Step 1.3.
+
+**If using Vercel AI Gateway (recommended/default):**
+
+1. **Update `package.json`** - Ensure correct dependencies:
+   ```json
+   {
+     "dependencies": {
+       "ai": "^6.0.0",
+       "@ai-sdk/gateway": "latest"
+     }
+   }
+   ```
+   - If `@ai-sdk/openai` exists, **remove it**
+   - If `@ai-sdk/gateway` is missing, **add it**
+
+2. **Update all AI code files** - Search for and replace:
+   - `import { openai } from "@ai-sdk/openai"` → `import { gateway } from "@ai-sdk/gateway"`
+   - `model: openai("gpt-4o-mini")` → `model: gateway("openai/gpt-4o-mini")`
+   - `model: openai("gpt-4o")` → `model: gateway("openai/gpt-4o")`
+
+3. **Run `pnpm install`** to apply dependency changes
+
+**If using a direct provider SDK:**
+- Keep the corresponding `@ai-sdk/*` package
+- Ensure the required API key is documented for Phase 3
+
 ---
 
 ## For EXISTING Projects

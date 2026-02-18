@@ -4,6 +4,40 @@ This phase guides the user through testing their Slack agent locally using ngrok
 
 ---
 
+## Step 4.0: Link to Vercel (Required for AI Gateway)
+
+Before testing locally, you must connect your project to Vercel. This enables the OIDC token that allows Vercel AI Gateway to work without API keys.
+
+**Create a Vercel project and link it:**
+
+1. **Create the Vercel project** (if not already done):
+   ```bash
+   vercel
+   ```
+   Follow the prompts to create a new project. You can cancel the deployment with Ctrl+C after the project is created.
+
+2. **Verify the link:**
+   ```bash
+   vercel link
+   ```
+   Confirm the project is linked (creates `.vercel/` directory).
+
+3. **Pull environment variables** (optional but recommended):
+   ```bash
+   vercel env pull .env.local
+   ```
+
+**Why this is required:**
+
+- Vercel AI Gateway uses OIDC tokens for authentication
+- Running `vercel link` connects your local project to the Vercel platform
+- This enables the `@ai-sdk/gateway` package to authenticate without API keys
+- Without this step, AI calls will fail with authentication errors
+
+**Note:** You'll complete the full deployment in Phase 5. This step just establishes the connection needed for local AI Gateway access.
+
+---
+
 ## Step 4.1: Start the Dev Server
 
 ```bash
@@ -94,6 +128,12 @@ Watch the terminal for any errors.
 - Check terminal/Vercel logs for errors
 - Verify bot is invited to the channel
 - Make sure Event Subscriptions URL is verified
+
+### AI Gateway not working / Authentication errors
+- Run `vercel link` to connect your project to Vercel
+- Ensure `.vercel/` directory exists in your project root
+- Try `vercel env pull .env.local` to sync environment
+- If still failing, you may need to deploy once (`vercel`) then test locally
 
 ---
 
