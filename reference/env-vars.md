@@ -57,6 +57,16 @@ You have two options for AI/LLM integration:
 
 When deployed on Vercel, the AI Gateway handles authentication automatically. **No API keys needed!**
 
+**For local development with AI Gateway:**
+
+To use AI Gateway locally (without API keys), you must link your project to Vercel:
+
+1. Create a Vercel project: `vercel`
+2. Link the project: `vercel link`
+3. The OIDC token will now work locally
+
+Without `vercel link`, you'll get authentication errors when using `@ai-sdk/gateway`.
+
 ```typescript
 import { generateText } from "ai";
 import { gateway } from "@ai-sdk/gateway";
