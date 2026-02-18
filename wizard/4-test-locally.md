@@ -135,6 +135,46 @@ Watch the terminal for any errors.
 - Try `vercel env pull .env.local` to sync environment
 - If still failing, you may need to deploy once (`vercel`) then test locally
 
+### "dispatch_failed" error (500)
+This is caused by H3's `toWebRequest()` consuming the request body stream before signature verification.
+
+**Fix:** Update `server/api/slack/events.post.ts` to buffer the body manually:
+```typescript
+import { defineEventHandler, getRequestURL, readRawBody } from "h3";
+
+export default defineEventHandler(async (event) => {
+  const rawBody = await readRawBody(event, "utf8");
+  const request = new Request(getRequestURL(event), {
+    method: event.method,
+    headers: event.headers,
+    body: rawBody,
+  });
+  return await handler(request);
+});
+```
+
+See SKILL.md "Implementation Gotchas" section 6 for the complete pattern.
+
+### "operation_timeout" error on slash commands
+This happens when your command handler takes longer than 3 seconds. Even with `await ack()`, the HTTP response is blocked until your entire handler function completes.
+
+**Fix:** Use fire-and-forget pattern:
+1. Call `await ack()` immediately
+2. Start async work **WITHOUT awaiting**: `processAsync().catch(logger.error)`
+3. Use `command.response_url` to post results asynchronously
+
+```typescript
+app.command('/mycommand', async ({ ack, command, logger }) => {
+  await ack();  // Must be first
+
+  // Fire-and-forget - DON'T await
+  processInBackground(command.response_url, command.text)
+    .catch((error) => logger.error("Failed:", error));
+});
+```
+
+See SKILL.md "Implementation Gotchas" section 7 for the complete pattern.
+
 ---
 
 ## Next Phase

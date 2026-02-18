@@ -186,12 +186,28 @@ export { app, receiver };
 ```typescript
 // server/api/slack/events.post.ts
 import { createHandler } from "@vercel/slack-bolt";
-import { eventHandler, toWebRequest } from "h3";
+import { defineEventHandler, getRequestURL, readRawBody } from "h3";
 import { app, receiver } from "../../bolt/app";
 
 const handler = createHandler(app, receiver);
-export default eventHandler(async (event) => handler(toWebRequest(event)));
+
+export default defineEventHandler(async (event) => {
+  // Read and cache the raw body first to avoid stream consumption issues
+  // with toWebRequest on serverless platforms (h3 issues #570, #578, #615)
+  const rawBody = await readRawBody(event, "utf8");
+
+  // Create a new Request with the buffered body
+  const request = new Request(getRequestURL(event), {
+    method: event.method,
+    headers: event.headers,
+    body: rawBody,
+  });
+
+  return await handler(request);
+});
 ```
+
+**Why this pattern?** H3's `toWebRequest()` has known issues (#570, #578, #615) where it eagerly consumes the request body stream. When `@vercel/slack-bolt` later calls `req.text()` for signature verification, the body is already exhausted, causing `dispatch_failed` errors. Buffering the body manually avoids this issue.
 
 ### VercelReceiver Options Reference
 
@@ -328,6 +344,73 @@ const s3Client = new S3Client({
 3. Set `AWS_ROLE_ARN` environment variable in Vercel
 
 **Reference:** [Vercel OIDC for AWS](https://vercel.com/docs/security/oidc/aws)
+
+### 6. dispatch_failed Error (500)
+
+If slash commands fail with `dispatch_failed`, the issue is usually H3's `toWebRequest` consuming the body stream before signature verification.
+
+**Fix:** Buffer the body manually before creating the Request:
+
+```typescript
+const rawBody = await readRawBody(event, "utf8");
+const request = new Request(getRequestURL(event), {
+  method: event.method,
+  headers: event.headers,
+  body: rawBody,
+});
+return await handler(request);
+```
+
+See the Events Handler section above for the complete pattern.
+
+### 7. operation_timeout Error
+
+If slash commands with AI processing fail with `operation_timeout`, you're blocking the HTTP response too long. Slack requires a response within 3 seconds.
+
+**Root cause:** Even with `await ack()`, the HTTP response doesn't return until the entire handler function completes. If you `await` AI generation after `ack()`, the HTTP response is blocked.
+
+**Fix:** Use fire-and-forget pattern:
+
+```typescript
+app.command('/mycommand', async ({ ack, command, logger }) => {
+  // 1. Acknowledge immediately
+  await ack();
+
+  // 2. Fire-and-forget: DON'T await this promise
+  generateAndRespond(command.response_url, command.text, logger).catch((error) => {
+    logger.error("Background operation failed:", error);
+  });
+  // HTTP response returns immediately here
+});
+
+async function generateAndRespond(responseUrl: string, topic: string, logger: Logger) {
+  try {
+    const result = await generateWithAI(topic);  // Takes >3 seconds
+
+    // Post result via response_url
+    await fetch(responseUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        response_type: "in_channel",
+        text: result,
+      }),
+    });
+  } catch (error) {
+    logger.error("Failed:", error);
+    await fetch(responseUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        response_type: "ephemeral",
+        text: "Sorry, something went wrong.",
+      }),
+    });
+  }
+}
+```
+
+See `patterns/slack-patterns.md` for complete examples.
 
 ---
 
