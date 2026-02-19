@@ -468,7 +468,7 @@ const result = await generateText({
   tools: {
     getWeather: tool({
       description: "Get weather for a location",
-      parameters: z.object({
+      inputSchema: z.object({
         location: z.string().describe("City name"),
       }),
       execute: async ({ location }) => {
@@ -487,6 +487,10 @@ const result = await generateText({
 | `maxTokens` | `maxOutputTokens` |
 | `result.usage.promptTokens` | `result.usage.inputTokens` |
 | `result.usage.completionTokens` | `result.usage.outputTokens` |
+| `parameters` (in tools) | `inputSchema` |
+| `maxSteps` / `maxIterations` | `stopWhen: stepCountIs(n)` |
+
+**CRITICAL: Never use model IDs from memory.** Model IDs change frequently. Before writing code that uses a model, run `curl -s https://ai-gateway.vercel.sh/v1/models` to fetch the current list. Use the model with the highest version number.
 
 ### Option 2: Direct Provider SDK
 
@@ -787,7 +791,7 @@ import { z } from 'zod';
 
 export const myTool = tool({
   description: 'Clear description of what this tool does',
-  parameters: z.object({
+  inputSchema: z.object({
     param: z.string().describe('What this parameter is for'),
   }),
   execute: async ({ param }) => {
