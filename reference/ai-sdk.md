@@ -151,6 +151,36 @@ const result = await generateObject({
 console.log(result.object); // Typed as { name: string, age: number, hobbies: string[] }
 ```
 
+### Structured Output via generateText (v6)
+
+In AI SDK v6, you can also generate structured output using `generateText` with the `output` option:
+
+```typescript
+import { generateText, Output } from "ai";
+import { gateway } from "@ai-sdk/gateway";
+import { z } from "zod";
+
+const PersonSchema = z.object({
+  name: z.string(),
+  age: z.number(),
+  hobbies: z.array(z.string()),
+});
+
+const result = await generateText({
+  model: gateway("openai/gpt-4o-mini"),
+  output: Output.object({ schema: PersonSchema }),
+  prompt: "Generate a fictional person profile",
+});
+
+console.log(result.object); // Typed output
+```
+
+Available `Output` types:
+- `Output.object({ schema })` - Generate a single object
+- `Output.array({ schema })` - Generate an array of objects
+- `Output.choice({ options })` - Select from predefined options
+- `Output.json()` - Generate raw JSON
+
 ## Tool Calling
 
 Define tools that the AI can call:
@@ -166,7 +196,7 @@ const result = await generateText({
   tools: {
     getWeather: tool({
       description: "Get current weather for a location",
-      parameters: z.object({
+      inputSchema: z.object({
         location: z.string().describe("City name"),
         unit: z.enum(["celsius", "fahrenheit"]).optional(),
       }),
@@ -177,7 +207,7 @@ const result = await generateText({
     }),
     searchWeb: tool({
       description: "Search the web for information",
-      parameters: z.object({
+      inputSchema: z.object({
         query: z.string().describe("Search query"),
       }),
       execute: async ({ query }) => {
@@ -197,7 +227,7 @@ const result = await generateText({
 For complex multi-step interactions:
 
 ```typescript
-import { generateText, tool, ToolLoopAgent } from "ai";
+import { generateText, tool, ToolLoopAgent, stepCountIs } from "ai";
 import { gateway } from "@ai-sdk/gateway";
 import { z } from "zod";
 
@@ -207,10 +237,27 @@ const agent = new ToolLoopAgent({
     // Define your tools
   },
   system: "You are a helpful assistant.",
-  maxIterations: 10,
+  stopWhen: stepCountIs(10), // v6: was maxIterations
 });
 
 const result = await agent.run("Complete this complex task");
+```
+
+### Type-Safe Agents with InferAgentUIMessage
+
+For end-to-end type safety when consuming agents with `useChat`:
+
+```typescript
+import { ToolLoopAgent, InferAgentUIMessage } from "ai";
+
+const agent = new ToolLoopAgent({
+  model: gateway("openai/gpt-4o"),
+  tools: { /* your tools */ },
+  system: "You are a helpful assistant.",
+});
+
+// Infer message type for UI components
+type AgentMessage = InferAgentUIMessage<typeof agent>;
 ```
 
 ### Multi-Turn Conversations
@@ -246,6 +293,11 @@ If migrating from v4/v5:
 | `maxTokens` | `maxOutputTokens` |
 | `result.usage.promptTokens` | `result.usage.inputTokens` |
 | `result.usage.completionTokens` | `result.usage.outputTokens` |
+| `parameters` (in tools) | `inputSchema` |
+| `maxSteps` / `maxIterations` | `stopWhen: stepCountIs(n)` |
+| `part.args` (tool parts) | `part.input` |
+| `part.result` (tool parts) | `part.output` |
+| `addToolResult` (useChat) | `addToolOutput` |
 
 ## Slack Integration Patterns
 
@@ -311,7 +363,7 @@ const result = await generateText({
   tools: {
     lookupUser: tool({
       description: "Look up a Slack user",
-      parameters: z.object({
+      inputSchema: z.object({
         userId: z.string(),
       }),
       execute: async ({ userId }) => {
@@ -327,18 +379,37 @@ const result = await generateText({
 });
 ```
 
-## Best Practices
+## DevTools (Development Only)
 
-### 1. Verify Current APIs
-
-Always check the installed AI SDK documentation:
+Capture all AI SDK calls to a local JSON file for debugging:
 
 ```bash
+pnpm add @ai-sdk/devtools
+```
+
+```typescript
+import { withDevTools } from "@ai-sdk/devtools";
+
+const model = withDevTools(gateway("openai/gpt-4o-mini"));
+```
+
+View captured calls at `.devtools/generations.json` or run `npx @ai-sdk/devtools` for a web UI at http://localhost:4983.
+
+## Best Practices
+
+### 1. Verify APIs Against Source
+
+**CRITICAL: Always verify AI SDK APIs against the installed package - never rely on memory.** The AI SDK evolves rapidly and training data may be outdated.
+
+```bash
+# Check bundled documentation
+grep "generateText" node_modules/ai/docs/
+
+# Check source code
+grep "generateText" node_modules/ai/src/
+
 # Check available functions
 ls node_modules/ai/docs/
-
-# Search for specific patterns
-grep -r "generateText" node_modules/ai/src/
 ```
 
 ### 2. Handle Errors Gracefully
@@ -395,6 +466,8 @@ console.log(result.object.priority);
 
 ## Model ID Discovery
 
+**CRITICAL: Never use model IDs from memory or training data.** Model IDs change frequently. Always fetch current IDs before writing code.
+
 Get current available models:
 
 ```bash
@@ -407,6 +480,8 @@ curl -s https://ai-gateway.vercel.sh/v1/models | jq -r '[.data[] | select(.id | 
 # Google models
 curl -s https://ai-gateway.vercel.sh/v1/models | jq -r '[.data[] | select(.id | startswith("google/")) | .id] | reverse | .[]'
 ```
+
+Use the model with the highest version number for the latest capabilities.
 
 ## References
 
