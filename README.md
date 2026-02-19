@@ -18,7 +18,7 @@ npx skills add vercel-labs/slack-agent-skill
 
 ### Manual Installation
 
-Clone the repository into your Claude Code skills directory:
+Clone the repository into your sills directory. For example, with Claude Code:
 
 git clone https://github.com/vercel-labs/slack-agent-skill.git ~/.claude/skills/slack-agent-skill
 
