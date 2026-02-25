@@ -1,6 +1,6 @@
 # Slack Agent Setup Wizard
 
-Interactive wizard for building and deploying Slack agents on Vercel. This wizard guides users through the complete setup process from project creation to production deployment.
+Interactive wizard for building and deploying Slack agents on Vercel using the [Chat SDK](https://www.chat-sdk.dev/). This wizard guides users through the complete setup process from project creation to production deployment.
 
 ## Key Feature: Custom Implementation Planning
 
@@ -11,7 +11,7 @@ When starting a new project, the wizard generates a **custom implementation plan
 - Right-sized state management
 - Concrete file paths to create
 
-This plan is presented for approval before any code is cloned, allowing users to refine the scope before implementation.
+This plan is presented for approval before any code is scaffolded, allowing users to refine the scope before implementation.
 
 ## How to Use
 
@@ -31,7 +31,7 @@ Check the project state to determine the appropriate starting phase:
 
 | Condition | Starting Phase |
 |-----------|----------------|
-| No `package.json` with `@slack/bolt` | Phase 1 - New project |
+| No `package.json` with `chat` | Phase 1 - New project |
 | Has project but `manifest.json` not customized | Phase 2 - Create Slack app |
 | Has project but no `.env` file | Phase 3 - Configure environment |
 | Has `.env` but not tested locally | Phase 4 - Test locally |
@@ -78,6 +78,7 @@ Throughout the wizard, track these user choices for use in later phases:
 |----------|----------|-----------------|
 | `SLACK_BOT_TOKEN` | Yes | Slack App > Install App |
 | `SLACK_SIGNING_SECRET` | Yes | Slack App > Basic Information |
+| `REDIS_URL` | Yes (production) | Upstash or any Redis provider |
 | `NGROK_AUTH_TOKEN` | Local only | ngrok.com dashboard |
 | `OPENAI_API_KEY` | Only if using direct OpenAI | platform.openai.com/api-keys |
 | `ANTHROPIC_API_KEY` | Only if using direct Anthropic | console.anthropic.com/settings/keys |

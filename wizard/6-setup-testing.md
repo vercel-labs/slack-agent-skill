@@ -29,16 +29,15 @@ export default defineConfig({
 
     // Test file patterns
     include: [
-      'server/**/*.test.ts',
-      'server/**/*.test.tsx',
-      'server/**/*.e2e.test.ts',
+      'lib/**/*.test.ts',
+      'lib/**/*.test.tsx',
+      'app/**/*.test.ts',
     ],
 
     // Exclude patterns
     exclude: [
       'node_modules',
-      '.nitro',
-      '.output',
+      '.next',
       'dist',
     ],
 
@@ -46,11 +45,12 @@ export default defineConfig({
     coverage: {
       provider: 'v8',
       reporter: ['text', 'json', 'html'],
-      include: ['server/**/*.ts'],
+      include: ['lib/**/*.ts', 'lib/**/*.tsx', 'app/**/*.ts'],
       exclude: [
-        'server/**/*.test.ts',
-        'server/**/*.d.ts',
-        'server/**/__tests__/**',
+        'lib/**/*.test.ts',
+        'lib/**/*.test.tsx',
+        'lib/**/*.d.ts',
+        'lib/__tests__/**',
       ],
       // Coverage thresholds (adjust as needed)
       thresholds: {
@@ -62,7 +62,7 @@ export default defineConfig({
     },
 
     // Setup files run before each test file
-    setupFiles: ['./server/__tests__/setup.ts'],
+    setupFiles: ['./lib/__tests__/setup.ts'],
 
     // Timeout for async operations (ms)
     testTimeout: 10000,
@@ -82,11 +82,11 @@ You can also copy this from `./templates/vitest.config.ts`.
 
 ## Step 6.3: Create Test Setup
 
-Create `server/__tests__/setup.ts` with test utilities and mocks. You can copy the template from `./templates/test-setup.ts`.
+Create `lib/__tests__/setup.ts` with test utilities and mocks. You can copy the template from `./templates/test-setup.ts`.
 
 This setup file provides:
 - Environment variable stubs for tests
-- Slack Web API mocking
+- Chat SDK mocking (thread, message, state)
 - Mock factories for creating test fixtures
 - Test lifecycle hooks
 
@@ -113,7 +113,7 @@ Add to `package.json`:
 
 Copy the sample test templates from `./templates/sample-tests/` to your project:
 
-- `agent.test.ts` - Sample agent unit tests
+- `agent.test.ts` - Sample bot handler tests
 - `tools.test.ts` - Sample tool unit tests
 
 Customize these templates for your specific implementation.
@@ -136,7 +136,7 @@ Aim for these coverage targets:
 |----------|--------|
 | Tools | 90%+ |
 | Agent logic | 85%+ |
-| Event listeners | 80%+ |
+| Event handlers | 80%+ |
 | Utilities | 90%+ |
 | Overall | 80%+ |
 
@@ -159,7 +159,7 @@ pnpm test:coverage
 ## Complete!
 
 Your Slack agent is now set up with:
-- Project from the official template
+- Next.js project with Chat SDK
 - Slack app with customized manifest
 - Environment configuration
 - Local development workflow

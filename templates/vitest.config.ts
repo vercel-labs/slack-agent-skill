@@ -10,16 +10,15 @@ export default defineConfig({
 
     // Test file patterns
     include: [
-      'server/**/*.test.ts',
-      'server/**/*.test.tsx',
-      'server/**/*.e2e.test.ts',
+      'lib/**/*.test.ts',
+      'lib/**/*.test.tsx',
+      'app/**/*.test.ts',
     ],
 
     // Exclude patterns
     exclude: [
       'node_modules',
-      '.nitro',
-      '.output',
+      '.next',
       'dist',
     ],
 
@@ -27,11 +26,12 @@ export default defineConfig({
     coverage: {
       provider: 'v8',
       reporter: ['text', 'json', 'html'],
-      include: ['server/**/*.ts'],
+      include: ['lib/**/*.ts', 'lib/**/*.tsx', 'app/**/*.ts'],
       exclude: [
-        'server/**/*.test.ts',
-        'server/**/*.d.ts',
-        'server/**/__tests__/**',
+        'lib/**/*.test.ts',
+        'lib/**/*.test.tsx',
+        'lib/**/*.d.ts',
+        'lib/__tests__/**',
       ],
       // Coverage thresholds (adjust as needed)
       thresholds: {
@@ -43,7 +43,7 @@ export default defineConfig({
     },
 
     // Setup files run before each test file
-    setupFiles: ['./server/__tests__/setup.ts'],
+    setupFiles: ['./lib/__tests__/setup.ts'],
 
     // Timeout for async operations (ms)
     testTimeout: 10000,

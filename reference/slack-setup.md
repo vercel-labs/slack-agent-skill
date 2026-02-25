@@ -51,6 +51,7 @@ Complete guide for creating and configuring a Slack app for your agent.
         "im:history",
         "mpim:history",
         "assistant:write",
+        "reactions:read",
         "reactions:write",
         "channels:join"
       ]
@@ -58,7 +59,7 @@ Complete guide for creating and configuring a Slack app for your agent.
   },
   "settings": {
     "event_subscriptions": {
-      "request_url": "https://your-domain.vercel.app/api/slack/events",
+      "request_url": "https://your-domain.vercel.app/api/webhooks/slack",
       "bot_events": [
         "app_mention",
         "assistant_thread_started",
@@ -66,12 +67,13 @@ Complete guide for creating and configuring a Slack app for your agent.
         "message.channels",
         "message.groups",
         "message.im",
-        "message.mpim"
+        "message.mpim",
+        "reaction_added"
       ]
     },
     "interactivity": {
       "is_enabled": true,
-      "request_url": "https://your-domain.vercel.app/api/slack/events"
+      "request_url": "https://your-domain.vercel.app/api/webhooks/slack"
     },
     "org_deploy_enabled": false,
     "socket_mode_enabled": false,
@@ -119,7 +121,7 @@ If your Vercel project has Deployment Protection enabled, you'll need a bypass s
 2. Under "Protection Bypass for Automation", copy the secret
 3. Add it as a query parameter to your URLs:
    ```
-   https://your-app.vercel.app/api/slack/events?x-vercel-protection-bypass=YOUR_SECRET
+   https://your-app.vercel.app/api/webhooks/slack?x-vercel-protection-bypass=YOUR_SECRET
    ```
 
 ### Update the Manifest
@@ -130,10 +132,10 @@ If your Vercel project has Deployment Protection enabled, you'll need a bypass s
    {
      "settings": {
        "event_subscriptions": {
-         "request_url": "https://your-app.vercel.app/api/slack/events"
+         "request_url": "https://your-app.vercel.app/api/webhooks/slack"
        },
        "interactivity": {
-         "request_url": "https://your-app.vercel.app/api/slack/events"
+         "request_url": "https://your-app.vercel.app/api/webhooks/slack"
        }
      }
    }
@@ -148,20 +150,20 @@ This approach is more reliable than manually editing Event Subscriptions and Int
 
 ## Step 5: Local Development Setup
 
-For local development, use the Slack CLI:
+For local development, use ngrok to create a tunnel:
 
 ```bash
-# Link your local project to the Slack app
-slack app link
+# Start your Next.js dev server
+pnpm dev
 
-# Start local development server with tunnel
-slack run
+# In a separate terminal, expose your local server
+ngrok http 3000
 ```
 
-The Slack CLI automatically:
-- Creates an ngrok tunnel
-- Updates your app's request URLs
-- Handles event routing
+Then update your Slack app's manifest with the ngrok URL:
+```
+https://abc123.ngrok.io/api/webhooks/slack
+```
 
 ## Troubleshooting
 
@@ -171,8 +173,8 @@ The Slack CLI automatically:
 
 **Solutions:**
 1. Ensure your server is running
-2. Check the URL is correct and accessible
-3. Verify your endpoint returns the `challenge` parameter correctly
+2. Check the URL is correct and accessible (must end with `/api/webhooks/slack`)
+3. Verify your endpoint returns the `challenge` parameter correctly (Chat SDK handles this automatically)
 4. If using Vercel with Deployment Protection, add the bypass secret to your URL (see Step 4)
 
 ### "invalid_auth" errors
@@ -190,7 +192,7 @@ The Slack CLI automatically:
 
 **Solutions:**
 1. Verify **Enable Events** is toggled On
-2. Check the Request URL is correct
+2. Check the Request URL is correct (`/api/webhooks/slack`)
 3. Ensure all required bot events are subscribed
 4. Check your server logs for incoming requests
 
@@ -225,6 +227,7 @@ The Slack CLI automatically:
 | `im:history` | Read direct message history |
 | `mpim:history` | Read group DM history |
 | `assistant:write` | Use Slack's Assistant features |
+| `reactions:read` | Receive reaction events (for `onReaction` handler) |
 | `reactions:write` | Add emoji reactions |
 | `channels:join` | Join public channels |
 

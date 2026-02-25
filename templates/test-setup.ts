@@ -11,103 +11,99 @@ import { vi, beforeAll, afterAll, beforeEach } from 'vitest';
 // Stub environment variables for tests
 vi.stubEnv('SLACK_BOT_TOKEN', 'xoxb-test-token-12345');
 vi.stubEnv('SLACK_SIGNING_SECRET', 'test-signing-secret-abc123');
-vi.stubEnv('AI_GATEWAY_API_KEY', 'test-ai-gateway-key');
+vi.stubEnv('REDIS_URL', 'redis://localhost:6379');
 vi.stubEnv('NODE_ENV', 'test');
 
 // ============================================
 // Global Mocks
 // ============================================
 
-// Mock Slack Web API
-vi.mock('@slack/web-api', () => ({
-  WebClient: vi.fn().mockImplementation(() => createMockSlackClient()),
+// Mock Chat SDK
+vi.mock('chat', () => ({
+  Chat: vi.fn().mockImplementation(() => ({
+    onNewMention: vi.fn(),
+    onSubscribedMessage: vi.fn(),
+    onSlashCommand: vi.fn(),
+    onAction: vi.fn(),
+    onReaction: vi.fn(),
+    webhooks: {
+      slack: vi.fn(),
+    },
+  })),
+  Card: vi.fn(),
+  CardText: vi.fn(),
+  Actions: vi.fn(),
+  Button: vi.fn(),
+  Divider: vi.fn(),
+  Modal: vi.fn(),
+  TextInput: vi.fn(),
+  Select: vi.fn(),
+  Option: vi.fn(),
 }));
 
-// Mock Slack Bolt (if needed)
-vi.mock('@slack/bolt', async (importOriginal) => {
-  const actual = await importOriginal();
-  return {
-    ...actual,
-    // Add any specific Bolt mocks here
-  };
-});
+// Mock Slack adapter
+vi.mock('@chat-adapter/slack', () => ({
+  createSlackAdapter: vi.fn().mockReturnValue({}),
+}));
+
+// Mock Redis state adapter
+vi.mock('@chat-adapter/state-redis', () => ({
+  createRedisState: vi.fn().mockReturnValue({}),
+}));
 
 // ============================================
 // Mock Factories
 // ============================================
 
-export function createMockSlackClient() {
+export function createMockThread(overrides = {}) {
   return {
-    conversations: {
-      history: vi.fn().mockResolvedValue({
-        ok: true,
-        messages: [],
-        has_more: false,
-      }),
-      replies: vi.fn().mockResolvedValue({
-        ok: true,
-        messages: [],
-        has_more: false,
-      }),
-      join: vi.fn().mockResolvedValue({
-        ok: true,
-        channel: { id: 'C12345678' },
-      }),
-      list: vi.fn().mockResolvedValue({
-        ok: true,
-        channels: [],
-      }),
-      info: vi.fn().mockResolvedValue({
-        ok: true,
-        channel: { id: 'C12345678', name: 'general' },
-      }),
+    post: vi.fn().mockResolvedValue(undefined),
+    subscribe: vi.fn().mockResolvedValue(undefined),
+    startTyping: vi.fn().mockResolvedValue(undefined),
+    state: {
+      get: vi.fn().mockResolvedValue(null),
+      set: vi.fn().mockResolvedValue(undefined),
     },
-    chat: {
-      postMessage: vi.fn().mockResolvedValue({
-        ok: true,
-        ts: '1234567890.123456',
-        channel: 'C12345678',
-      }),
-      update: vi.fn().mockResolvedValue({
-        ok: true,
-        ts: '1234567890.123456',
-      }),
-      delete: vi.fn().mockResolvedValue({
-        ok: true,
-      }),
-    },
-    users: {
-      info: vi.fn().mockResolvedValue({
-        ok: true,
-        user: {
-          id: 'U12345678',
-          name: 'testuser',
-          real_name: 'Test User',
-        },
-      }),
-    },
-    reactions: {
-      add: vi.fn().mockResolvedValue({ ok: true }),
-      remove: vi.fn().mockResolvedValue({ ok: true }),
-    },
-    assistant: {
-      threads: {
-        setStatus: vi.fn().mockResolvedValue({ ok: true }),
-        setSuggestedPrompts: vi.fn().mockResolvedValue({ ok: true }),
-      },
-    },
-    views: {
-      open: vi.fn().mockResolvedValue({ ok: true }),
-      update: vi.fn().mockResolvedValue({ ok: true }),
-      push: vi.fn().mockResolvedValue({ ok: true }),
-    },
+    channelId: 'C12345678',
+    threadTs: undefined,
+    ...overrides,
+  };
+}
+
+export function createMockMessage(overrides = {}) {
+  return {
+    text: 'test message',
+    userId: 'U12345678',
+    ts: '1234567890.123456',
+    ...overrides,
+  };
+}
+
+export function createMockSlashCommandEvent(overrides = {}) {
+  return {
+    text: '',
+    userId: 'U12345678',
+    channelId: 'C12345678',
+    thread: createMockThread(),
+    openModal: vi.fn().mockResolvedValue(undefined),
+    ...overrides,
+  };
+}
+
+export function createMockActionEvent(overrides = {}) {
+  return {
+    actionId: '',
+    value: '',
+    userId: 'U12345678',
+    thread: createMockThread(),
+    values: {},
+    ...overrides,
   };
 }
 
 export function createMockContext(overrides = {}) {
   return {
     channel_id: 'C12345678',
-    dm_channel: 'D12345678',
     thread_ts: undefined,
     is_dm: false,
     team_id: 'T12345678',

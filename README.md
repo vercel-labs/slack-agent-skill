@@ -1,10 +1,11 @@
 # Slack Agent Skill
 
-An agent-agnostic skill for building and deploying Slack agents on Vercel. This skill provides comprehensive guidance for developing Slack bots with AI capabilities using the [Vercel Slack Agent Template](https://github.com/vercel-partner-solutions/slack-agent-template).
+An agent-agnostic skill for building and deploying Slack agents on Vercel. This skill provides comprehensive guidance for developing Slack bots with AI capabilities using the [Chat SDK](https://www.chat-sdk.dev/) (`chat` + `@chat-adapter/slack`) with Next.js.
 
 ## Features
 
 - **Interactive Setup Wizard**: Step-by-step guidance from project creation to production deployment
+- **Chat SDK Patterns**: JSX components, event handlers, thread management, and state persistence
 - **Quality Standards**: Embedded testing and code quality requirements
 - **AI Integration**: Support for Vercel AI Gateway and direct provider SDKs
 - **Comprehensive Patterns**: Slack-specific development patterns and best practices
@@ -18,7 +19,7 @@ npx skills add vercel-labs/slack-agent-skill
 
 ### Manual Installation
 
-Clone the repository into your sills directory. For example, with Claude Code:
+Clone the repository into your skills directory. For example, with Claude Code:
 
 git clone https://github.com/vercel-labs/slack-agent-skill.git ~/.claude/skills/slack-agent-skill
 
@@ -51,7 +52,7 @@ The wizard will guide you through:
 When working on an existing Slack agent project, the skill automatically provides:
 
 - Code quality standards (linting, testing, TypeScript)
-- Slack-specific patterns (events, slash commands, Block Kit)
+- Slack-specific patterns (event handlers, slash commands, JSX components)
 - AI integration guidance (Vercel AI Gateway, direct providers)
 - Deployment best practices
 
@@ -85,9 +86,9 @@ The skill enforces these requirements:
 
 ## Related Resources
 
-- [Vercel Slack Agent Template](https://github.com/vercel-partner-solutions/slack-agent-template)
+- [Chat SDK Documentation](https://www.chat-sdk.dev/)
 - [AI SDK Documentation](https://ai-sdk.dev)
-- [Slack Bolt Documentation](https://slack.dev/bolt-js)
+- [Slack API Documentation](https://api.slack.com)
 - [Vercel Documentation](https://vercel.com/docs)
 
 ## License

@@ -23,10 +23,10 @@ When generating a plan, use this structure:
 | `/command` | What it does | `/command arg` |
 
 ### Event Handlers
-- [ ] App mentions - [What happens when @mentioned]
-- [ ] Direct messages - [What happens in DMs]
-- [ ] Reactions - [If applicable]
-- [ ] Channel messages - [If monitoring channels]
+- [ ] `onNewMention` - [What happens when @mentioned]
+- [ ] `onSubscribedMessage` - [Follow-up message handling]
+- [ ] `onReaction` - [If applicable]
+- [ ] `onSlashCommand` - [Slash command handling]
 
 ### AI Tools (if using AI)
 | Tool | Purpose | Parameters |
@@ -40,21 +40,23 @@ When generating a plan, use this structure:
 
 ### State Management
 - [ ] Stateless (simple request/response)
-- [ ] Vercel Workflow (multi-turn conversations)
+- [ ] Chat SDK state (`@chat-adapter/state-redis`) for thread-level persistence
 - [ ] Database (persistent storage)
+  - Upstash Redis for Chat SDK state adapter
   - Vercel Blob for file/document storage
   - AWS Aurora via Vercel Marketplace for relational data
   - NOTE: Do NOT recommend Vercel KV (deprecated)
 
-### Block Kit UI
-- [ ] Rich messages with buttons/menus
-- [ ] Modal dialogs
+### UI Components (JSX)
+- [ ] `<Card>` with `<Button>` / `<Actions>`
+- [ ] `<Modal>` dialogs
 - [ ] Home tab
 
 ### Files to Create/Modify
-- `server/listeners/commands/[command].ts`
-- `server/lib/ai/tools/[tools].ts`
-- etc.
+- `lib/bot.tsx` - Bot instance and event handlers
+- `lib/tools/[tool].ts` - AI tool definitions
+- `app/api/webhooks/[platform]/route.ts` - Webhook route
+- `app/api/cron/[job]/route.ts` - Cron endpoints (if applicable)
 ```
 
 ---
@@ -91,8 +93,8 @@ A bot that collects daily standup updates from team members and posts a summary 
 | `/standup-configure` | Configure standup time/channel | `/standup-configure #team 9:00` |
 
 ### Event Handlers
-- [ ] Direct messages - Collect standup responses
-- [ ] App mentions - Answer questions about standup status
+- [x] `onSubscribedMessage` - Collect standup responses in DM threads
+- [x] `onNewMention` - Answer questions about standup status
 
 ### AI Tools
 | Tool | Purpose | Parameters |
@@ -107,19 +109,21 @@ A bot that collects daily standup updates from team members and posts a summary 
 | `0 10 * * 1-5` | Post summary to configured channel |
 
 ### State Management
-- [x] Database (persistent storage) - Track responses, configuration
+- [x] Chat SDK state - Track daily responses per thread
+- [x] Database (persistent storage) - Track configuration, history
 
-### Block Kit UI
-- [x] Rich messages with buttons/menus - Quick response buttons
-- [x] Modal dialogs - Configuration modal
+### UI Components (JSX)
+- [x] `<Card>` with `<Button>` - Quick response buttons
+- [x] `<Modal>` - Configuration modal
 
 ### Files to Create/Modify
-- `server/listeners/commands/standup.ts`
-- `server/listeners/commands/standup-status.ts`
-- `server/listeners/commands/standup-configure.ts`
-- `server/lib/ai/tools/summarize-standups.ts`
-- `server/lib/standup/scheduler.ts`
-- `server/lib/standup/storage.ts`
+- `lib/bot.tsx` - Bot instance, mention/message handlers
+- `lib/tools/summarize-standups.ts`
+- `lib/standup/scheduler.ts`
+- `lib/standup/storage.ts`
+- `app/api/webhooks/[platform]/route.ts`
+- `app/api/cron/standup-prompt/route.ts`
+- `app/api/cron/standup-summary/route.ts`
 ```
 
 ---
@@ -156,8 +160,8 @@ An AI-powered support bot that answers questions, creates tickets, and escalates
 | `/ticket-status` | Check ticket status | `/ticket-status #1234` |
 
 ### Event Handlers
-- [x] App mentions - Answer support questions in channels
-- [x] Direct messages - Private support conversations
+- [x] `onNewMention` - Answer support questions in channels
+- [x] `onSubscribedMessage` - Multi-turn support conversations
 
 ### AI Tools
 | Tool | Purpose | Parameters |
@@ -168,20 +172,19 @@ An AI-powered support bot that answers questions, creates tickets, and escalates
 | `escalate_to_human` | Route to human agent | `ticketId`, `reason` |
 
 ### State Management
-- [x] Vercel Workflow (multi-turn conversations) - For back-and-forth support chats
+- [x] Chat SDK state - Multi-turn conversation history
 - [x] Database (persistent storage) - Ticket tracking
 
-### Block Kit UI
-- [x] Rich messages with buttons/menus - Ticket actions, escalation button
-- [x] Modal dialogs - Ticket creation form
+### UI Components (JSX)
+- [x] `<Card>` with `<Button>` - Ticket actions, escalation button
+- [x] `<Modal>` - Ticket creation form
 
 ### Files to Create/Modify
-- `server/listeners/commands/support.ts`
-- `server/listeners/commands/ticket.ts`
-- `server/listeners/commands/ticket-status.ts`
-- `server/lib/ai/tools/search-knowledge-base.ts`
-- `server/lib/ai/tools/create-ticket.ts`
-- `server/lib/ai/tools/escalate.ts`
+- `lib/bot.tsx` - Bot instance, handlers
+- `lib/tools/search-knowledge-base.ts`
+- `lib/tools/create-ticket.ts`
+- `lib/tools/escalate.ts`
+- `app/api/webhooks/[platform]/route.ts`
 ```
 
 ---
@@ -192,7 +195,7 @@ An AI-powered support bot that answers questions, creates tickets, and escalates
 
 ### Typical Features
 - External API integration
-- Formatted responses with Block Kit
+- Formatted responses with JSX components
 - Caching for performance
 - Multiple data sources
 
@@ -219,8 +222,8 @@ A bot that provides weather information for any location using an external weath
 | `/weather-set-default` | Set default location | `/weather-set-default Seattle` |
 
 ### Event Handlers
-- [x] App mentions - Answer weather questions in channels
-- [x] Direct messages - Private weather queries
+- [x] `onNewMention` - Answer weather questions in channels
+- [x] `onSubscribedMessage` - Follow-up weather queries
 
 ### AI Tools
 | Tool | Purpose | Parameters |
@@ -231,18 +234,18 @@ A bot that provides weather information for any location using an external weath
 
 ### State Management
 - [ ] Stateless (simple request/response) - Most queries are one-shot
-- [x] Database (persistent storage) - User location preferences
+- [x] Chat SDK state - User location preferences per thread
 
-### Block Kit UI
-- [x] Rich messages with buttons/menus - Formatted weather cards
-- [ ] Modal dialogs - Not needed
+### UI Components (JSX)
+- [x] `<Card>` - Formatted weather cards
+- [ ] `<Modal>` - Not needed
 
 ### Files to Create/Modify
-- `server/listeners/commands/weather.ts`
-- `server/listeners/commands/forecast.ts`
-- `server/lib/ai/tools/get-weather.ts`
-- `server/lib/weather/api-client.ts`
-- `server/lib/weather/formatters.ts`
+- `lib/bot.tsx` - Bot instance, handlers
+- `lib/tools/get-weather.ts`
+- `lib/weather/api-client.ts`
+- `lib/weather/formatters.tsx`
+- `app/api/webhooks/[platform]/route.ts`
 ```
 
 ---
@@ -268,18 +271,17 @@ A conversational AI assistant that can help with various tasks through natural d
 ### Core Features
 1. **Multi-turn Conversations** - Maintains context across messages
 2. **Tool Calling** - Performs actions based on conversation
-3. **Conversation Memory** - Remembers past interactions
+3. **Conversation Memory** - Remembers past interactions via thread state
 4. **Customizable Personality** - Adjustable system prompt
 
 ### Slash Commands
 | Command | Description | Example |
 |---------|-------------|---------|
 | `/ask` | Start a conversation | `/ask Help me write an email` |
-| `/clear` | Clear conversation history | `/clear` |
 
 ### Event Handlers
-- [x] App mentions - Respond to @mentions with AI
-- [x] Direct messages - Full conversations in DMs
+- [x] `onNewMention` - Respond to @mentions with AI
+- [x] `onSubscribedMessage` - Full conversations in threads
 
 ### AI Tools
 | Tool | Purpose | Parameters |
@@ -289,20 +291,19 @@ A conversational AI assistant that can help with various tasks through natural d
 | `set_reminder` | Create a reminder | `message`, `time` |
 
 ### State Management
-- [x] Vercel Workflow (multi-turn conversations) - Core conversation flow
+- [x] Chat SDK state - Conversation history per thread
 - [x] Database (persistent storage) - Long-term memory
 
-### Block Kit UI
-- [x] Rich messages with buttons/menus - Action suggestions
-- [ ] Modal dialogs - Not typically needed
+### UI Components (JSX)
+- [x] `<Card>` with `<Button>` - Action suggestions
+- [ ] `<Modal>` - Not typically needed
 
 ### Files to Create/Modify
-- `server/listeners/commands/ask.ts`
-- `server/listeners/commands/clear.ts`
-- `server/lib/ai/agent.ts` (modify)
-- `server/lib/ai/tools/search-web.ts`
-- `server/lib/ai/tools/calculate.ts`
-- `server/lib/ai/memory/conversation-store.ts`
+- `lib/bot.tsx` - Bot instance, mention/message handlers
+- `lib/tools/search-web.ts`
+- `lib/tools/calculate.ts`
+- `lib/ai/agent.ts` - Agent configuration
+- `app/api/webhooks/[platform]/route.ts`
 ```
 
 ---
@@ -340,8 +341,8 @@ A bot that helps manage deployments, CI/CD pipelines, and release workflows.
 | `/releases` | List recent releases | `/releases` |
 
 ### Event Handlers
-- [x] App mentions - Answer deployment questions
-- [ ] Direct messages - Not typically needed
+- [x] `onNewMention` - Answer deployment questions
+- [x] `onAction` - Handle confirmation buttons
 
 ### AI Tools
 | Tool | Purpose | Parameters |
@@ -353,19 +354,17 @@ A bot that helps manage deployments, CI/CD pipelines, and release workflows.
 
 ### State Management
 - [ ] Stateless (simple request/response) - Commands are atomic
-- [ ] Vercel Workflow - For multi-step deployments with confirmations
 
-### Block Kit UI
-- [x] Rich messages with buttons/menus - Confirm/cancel buttons
-- [x] Modal dialogs - Deployment configuration
+### UI Components (JSX)
+- [x] `<Card>` with `<Button>` - Confirm/cancel buttons
+- [x] `<Modal>` - Deployment configuration
 
 ### Files to Create/Modify
-- `server/listeners/commands/deploy.ts`
-- `server/listeners/commands/deploy-status.ts`
-- `server/listeners/commands/rollback.ts`
-- `server/lib/ai/tools/trigger-deployment.ts`
-- `server/lib/ai/tools/get-deployment-status.ts`
-- `server/lib/deploy/github-client.ts`
+- `lib/bot.tsx` - Bot instance, command/action handlers
+- `lib/tools/trigger-deployment.ts`
+- `lib/tools/get-deployment-status.ts`
+- `lib/deploy/github-client.ts`
+- `app/api/webhooks/[platform]/route.ts`
 ```
 
 ---
@@ -403,8 +402,8 @@ A bot that receives alerts from monitoring systems and routes them to appropriat
 | `/on-call` | Show who's on call | `/on-call` |
 
 ### Event Handlers
-- [ ] App mentions - Not primary interface
-- [x] Reactions - Ack alerts with emoji reactions
+- [x] `onReaction` - Ack alerts with emoji reactions
+- [x] `onAction` - Handle ack/silence buttons
 
 ### Scheduled Jobs
 | Schedule | Action |
@@ -414,16 +413,17 @@ A bot that receives alerts from monitoring systems and routes them to appropriat
 ### State Management
 - [x] Database (persistent storage) - Alert state, ack status, routing rules
 
-### Block Kit UI
-- [x] Rich messages with buttons/menus - Ack/silence buttons on alerts
-- [x] Modal dialogs - Alert configuration
+### UI Components (JSX)
+- [x] `<Card>` with `<Button>` - Ack/silence buttons on alerts
+- [x] `<Modal>` - Alert configuration
 
 ### Files to Create/Modify
-- `server/api/webhooks/alert.post.ts`
-- `server/listeners/commands/alert-ack.ts`
-- `server/listeners/commands/alert-silence.ts`
-- `server/lib/alerts/router.ts`
-- `server/lib/alerts/escalation.ts`
+- `lib/bot.tsx` - Bot instance, reaction/action handlers
+- `app/api/webhooks/alerts/route.ts` - External alert ingestion
+- `app/api/webhooks/[platform]/route.ts` - Slack webhook
+- `lib/alerts/router.ts`
+- `lib/alerts/escalation.ts`
+- `app/api/cron/alert-escalation/route.ts`
 ```
 
 ---
@@ -459,7 +459,7 @@ When generating plans, indicate complexity to set expectations:
 | Complexity | Characteristics | Example |
 |------------|-----------------|---------|
 | **Simple** | 1-2 slash commands, no database, no scheduled jobs | Weather lookup |
-| **Medium** | Multiple commands, basic state, Block Kit UI | Ticket system |
+| **Medium** | Multiple commands, basic state, JSX components | Ticket system |
 | **Complex** | Multi-turn workflows, database, scheduled jobs, webhooks | Full standup bot |
 
 Include a complexity indicator in your generated plans to help users understand scope.

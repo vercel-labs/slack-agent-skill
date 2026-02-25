@@ -24,7 +24,8 @@ vercel
 **Option B - Via Dashboard:**
 > 1. Go to https://vercel.com/new
 > 2. Import your GitHub repository
-> 3. Click **Deploy**
+> 3. Framework Preset should auto-detect **Next.js**
+> 4. Click **Deploy**
 
 ---
 
@@ -38,6 +39,7 @@ Tell the user:
 > ```bash
 > vc env add SLACK_BOT_TOKEN
 > vc env add SLACK_SIGNING_SECRET
+> vc env add REDIS_URL
 > ```
 > Paste each value when prompted. Select all environments (Production, Preview, Development) when asked.
 >
@@ -47,6 +49,7 @@ Tell the user:
 > 3. Add these variables:
 >    - `SLACK_BOT_TOKEN` = your bot token
 >    - `SLACK_SIGNING_SECRET` = your signing secret
+>    - `REDIS_URL` = your Redis connection URL
 > 4. Click **Save**
 >
 > **After adding variables:** Redeploy the project for changes to take effect.
@@ -85,7 +88,7 @@ Tell the user:
 
 Once they provide the secret, the URL format will be:
 ```
-https://YOUR-APP.vercel.app/api/slack/events?x-vercel-protection-bypass=YOUR_SECRET
+https://YOUR-APP.vercel.app/api/webhooks/slack?x-vercel-protection-bypass=YOUR_SECRET
 ```
 
 **Update the manifest:**
@@ -137,7 +140,7 @@ Tell the user:
 
 ### "url_verification" failed
 - Make sure your deployment is complete
-- Check the URL is correct (includes `/api/slack/events`)
+- Check the URL is correct (includes `/api/webhooks/slack`)
 - If using Vercel with Deployment Protection, add the bypass secret to your URL
 
 ### "invalid_auth" error

@@ -303,79 +303,54 @@ If migrating from v4/v5:
 
 ### Streaming to Slack
 
-Update Slack messages progressively for a better UX:
+The Chat SDK handles streaming updates to Slack automatically. Simply pass the stream to `thread.post()`:
 
 ```typescript
 import { streamText } from "ai";
 import { gateway } from "@ai-sdk/gateway";
 
-async function streamToSlack(client: WebClient, channel: string, threadTs: string) {
-  // Post initial "thinking" message
-  const msg = await client.chat.postMessage({
-    channel,
-    thread_ts: threadTs,
-    text: "Thinking...",
-  });
+bot.onNewMention(async (thread, message) => {
+  await thread.startTyping();
 
   const result = await streamText({
     model: gateway("openai/gpt-4o-mini"),
     maxOutputTokens: 1000,
-    prompt: "Your prompt",
+    prompt: message.text,
   });
 
-  let fullText = "";
-  let lastUpdate = Date.now();
-  const UPDATE_INTERVAL = 500; // ms
-
-  for await (const chunk of result.textStream) {
-    fullText += chunk;
-
-    // Throttle updates to avoid rate limits
-    if (Date.now() - lastUpdate > UPDATE_INTERVAL) {
-      await client.chat.update({
-        channel,
-        ts: msg.ts!,
-        text: fullText + "...",
-      });
-      lastUpdate = Date.now();
-    }
-  }
-
-  // Final update
-  await client.chat.update({
-    channel,
-    ts: msg.ts!,
-    text: fullText,
-  });
-}
+  // Chat SDK handles progressive Slack message updates automatically
+  await thread.post(result.textStream);
+});
 ```
 
 ### Tool Results in Slack
 
-Format tool results nicely:
+Use AI SDK tools with Chat SDK thread posting:
 
 ```typescript
 import { generateText, tool } from "ai";
 import { gateway } from "@ai-sdk/gateway";
+import { z } from "zod";
 
-const result = await generateText({
-  model: gateway("openai/gpt-4o-mini"),
-  tools: {
-    lookupUser: tool({
-      description: "Look up a Slack user",
-      inputSchema: z.object({
-        userId: z.string(),
+bot.onNewMention(async (thread, message) => {
+  const result = await generateText({
+    model: gateway("openai/gpt-4o-mini"),
+    tools: {
+      lookupUser: tool({
+        description: "Look up a Slack user",
+        inputSchema: z.object({
+          userId: z.string(),
+        }),
+        execute: async ({ userId }) => {
+          // Fetch user info via your preferred method
+          return { name: "Test User", email: "test@example.com" };
+        },
       }),
-      execute: async ({ userId }) => {
-        const user = await client.users.info({ user: userId });
-        return {
-          name: user.user?.real_name,
-          email: user.user?.profile?.email,
-        };
-      },
-    }),
-  },
-  prompt: "Who is <@U123456>?",
+    },
+    prompt: message.text,
+  });
+
+  await thread.post(result.text);
 });
 ```
 

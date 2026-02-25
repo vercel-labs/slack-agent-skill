@@ -16,10 +16,10 @@ Complete guide for deploying your Slack agent to Vercel.
 2. Click **Import Git Repository**
 3. Select your repository
 4. Configure project settings:
-   - **Framework Preset:** Other
+   - **Framework Preset:** Next.js
    - **Root Directory:** Leave as default
    - **Build Command:** `pnpm build` (or leave default)
-   - **Output Directory:** `.output`
+   - **Output Directory:** `.next` (auto-detected)
 5. Click **Deploy**
 
 ### Option B: Deploy via CLI
@@ -52,7 +52,7 @@ After initial deployment, configure your environment variables.
 |----------|-------|--------------|
 | `SLACK_BOT_TOKEN` | `xoxb-your-token` | Production, Preview |
 | `SLACK_SIGNING_SECRET` | `your-signing-secret` | Production, Preview |
-| `AI_GATEWAY_API_KEY` | `your-ai-gateway-key` | Production, Preview |
+| `REDIS_URL` | `redis://...` | Production, Preview |
 
 4. Click **Save** for each variable
 5. **Redeploy** your project to apply the changes
@@ -65,14 +65,6 @@ vercel env add SLACK_BOT_TOKEN production
 
 # You'll be prompted to enter the value
 ```
-
-## Get AI Gateway API Key
-
-1. Go to your Vercel Dashboard
-2. Navigate to **AI** > **Gateway**
-3. Create a new gateway or select existing
-4. Copy the API key
-5. Add it as `AI_GATEWAY_API_KEY` environment variable
 
 ## Update Slack App URLs
 
@@ -88,7 +80,7 @@ After deployment, update your Slack app to use the production URL.
 1. Go to **Event Subscriptions**
 2. Update **Request URL** to:
    ```
-   https://your-app.vercel.app/api/slack/events
+   https://your-app.vercel.app/api/webhooks/slack
    ```
 3. Wait for verification (green checkmark)
 4. Click **Save Changes**
@@ -98,7 +90,7 @@ After deployment, update your Slack app to use the production URL.
 1. Go to **Interactivity & Shortcuts**
 2. Update **Request URL** to:
    ```
-   https://your-app.vercel.app/api/slack/events
+   https://your-app.vercel.app/api/webhooks/slack
    ```
 3. Click **Save Changes**
 
@@ -108,7 +100,7 @@ After deployment, update your Slack app to use the production URL.
 2. Edit each command
 3. Update **Request URL** to:
    ```
-   https://your-app.vercel.app/api/slack/events
+   https://your-app.vercel.app/api/webhooks/slack
    ```
 4. Click **Save**
 
@@ -139,7 +131,7 @@ For long-running agent operations, configure function settings in `vercel.json`:
 ```json
 {
   "functions": {
-    "api/slack/events.ts": {
+    "app/api/webhooks/[platform]/route.ts": {
       "maxDuration": 30
     }
   }
@@ -196,8 +188,8 @@ Logs appear in Vercel Dashboard > Logs.
 
 **Solutions:**
 1. Ensure deployment is complete
-2. Check the URL is exactly correct
-3. Verify your endpoint handles the challenge correctly
+2. Check the URL is exactly correct (`/api/webhooks/slack`)
+3. Verify your endpoint handles the challenge correctly (Chat SDK does this automatically)
 4. Check Vercel logs for errors
 
 ### Cold Start Delays
@@ -214,7 +206,7 @@ Logs appear in Vercel Dashboard > Logs.
 Before going live:
 
 - [ ] Environment variables configured for Production
-- [ ] Slack Request URLs updated to production domain
+- [ ] Slack Request URLs updated to production domain (`/api/webhooks/slack`)
 - [ ] Webhook verification successful
 - [ ] Test message/mention working
 - [ ] Error handling in place

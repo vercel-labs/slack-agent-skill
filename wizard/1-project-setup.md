@@ -1,13 +1,13 @@
 # Phase 1: Project Setup
 
-This phase handles creating a new Slack agent project from the template.
+This phase handles creating a new Slack agent project using the Chat SDK with Next.js.
 
 ## Check Current State
 
 First, look for existing project indicators:
-- `package.json` with `@slack/bolt` dependency
+- `package.json` with `chat` dependency
 - `manifest.json` (Slack app manifest)
-- `server/` directory with agent code
+- `lib/bot.ts` or `lib/bot.tsx` (bot instance)
 - `.env` file with credentials
 
 If these exist, this is an existing project - skip to Phase 2 or 3.
@@ -18,7 +18,7 @@ If these exist, this is an existing project - skip to Phase 2 or 3.
 
 ### Step 1.1: Understand the Agent Purpose
 
-Before cloning the template, ask the user what they're building:
+Before scaffolding the project, ask the user what they're building:
 
 > **What kind of Slack agent are you building?**
 >
@@ -48,8 +48,8 @@ Based on the user's stated purpose, generate a custom implementation plan tailor
 1. **Analyze the agent purpose** to identify:
    - Primary interaction patterns (slash commands, mentions, DMs, scheduled)
    - Whether AI/LLM is needed and what for
-   - State requirements (stateless, conversational, persistent)
-   - UI needs (simple text, Block Kit, modals)
+   - State requirements (stateless, thread state, persistent)
+   - UI needs (simple text, JSX components, modals)
    - External integrations needed (APIs, webhooks, databases)
 
 2. **Match to archetypes** from the reference document:
@@ -65,12 +65,12 @@ Based on the user's stated purpose, generate a custom implementation plan tailor
    - Overview (1-2 sentences)
    - Core Features (3-5 specific features)
    - Slash Commands (with names, descriptions, examples)
-   - Event Handlers (what triggers the bot)
+   - Event Handlers (what triggers the bot - `onNewMention`, `onSubscribedMessage`, `onSlashCommand`, `onAction`, `onReaction`)
    - AI Tools (if using AI - with specific tool names and parameters)
    - Scheduled Jobs (if applicable - with cron expressions)
-   - State Management (stateless, workflow, or database)
-   - Block Kit UI (what UI elements are needed)
-   - Files to Create/Modify (specific file paths)
+   - State Management (stateless, Chat SDK state, or database)
+   - UI Components (what JSX elements are needed - `<Card>`, `<Button>`, `<Modal>`, etc.)
+   - Files to Create/Modify (specific file paths using Chat SDK conventions)
 
 4. **Include complexity indicator:**
    - **Simple** - 1-2 commands, no database, can be built quickly
@@ -106,7 +106,7 @@ Ask the user if their agent will use AI/LLM capabilities:
 Based on their choice:
 
 **If Vercel AI Gateway (default):**
-- The template already includes `ai` and `@ai-sdk/gateway` packages
+- The project will include `ai` and `@ai-sdk/gateway` packages
 - No additional setup needed - works automatically on Vercel
 - Store this choice for Phase 3 (no AI keys needed in .env)
 
@@ -121,63 +121,97 @@ Based on their choice:
 
 **Store this context** - you'll use it for environment configuration in Phase 3.
 
-### Step 1.4: Clone the Template
+### Step 1.4: Scaffold the Project
 
-Clone the official Slack Agent Template with the recommended name:
+Create a new Next.js project with Chat SDK:
 
 ```bash
-# Recommended name based on your agent: <recommended-name>
-git clone https://github.com/vercel-partner-solutions/slack-agent-template <recommended-name>
+# Create Next.js project with recommended name
+npx create-next-app@latest <recommended-name> --typescript --app --tailwind --eslint
 cd <recommended-name>
-pnpm install
+
+# Install Chat SDK dependencies
+pnpm add chat @chat-adapter/slack @chat-adapter/state-redis
+
+# Install AI SDK (if using AI)
+pnpm add ai @ai-sdk/gateway zod
 
 # Start fresh git history
-rm -rf .git
 git init
 git add .
-git commit -m "Initial commit from slack-agent-template"
+git commit -m "Initial commit from create-next-app + Chat SDK"
 ```
 
 Ask the user to confirm or customize the project name before proceeding.
 
-### Step 1.5: Verify AI SDK Configuration
+### Step 1.5: Set Up Chat SDK Structure
 
-After cloning, verify and update the AI SDK configuration based on the provider choice from Step 1.3.
+After scaffolding, create the core Chat SDK files:
 
-**If using Vercel AI Gateway (recommended/default):**
+1. **Create `lib/bot.tsx`** - Bot instance:
+   ```typescript
+   import { Chat } from "chat";
+   import { createSlackAdapter } from "@chat-adapter/slack";
+   import { createRedisState } from "@chat-adapter/state-redis";
 
-1. **Update `package.json`** - Ensure correct dependencies:
+   export const bot = new Chat({
+     userName: "<bot-name>",
+     adapters: {
+       slack: createSlackAdapter(),
+     },
+     state: createRedisState(),
+   });
+
+   // Register event handlers
+   bot.onNewMention(async (thread, message) => {
+     await thread.subscribe();
+     await thread.post("Hello! I'm listening.");
+   });
+
+   bot.onSubscribedMessage(async (thread, message) => {
+     await thread.post(`You said: ${message.text}`);
+   });
+   ```
+
+2. **Create `app/api/webhooks/[platform]/route.ts`** - Webhook handler:
+   ```typescript
+   import { after } from "next/server";
+   import { bot } from "@/lib/bot";
+
+   export async function POST(request: Request, context: { params: Promise<{ platform: string }> }) {
+     const { platform } = await context.params;
+     const handler = bot.webhooks[platform as keyof typeof bot.webhooks];
+     if (!handler) return new Response("Unknown platform", { status: 404 });
+     return handler(request, { waitUntil: (task) => after(() => task) });
+   }
+   ```
+
+3. **Update `tsconfig.json`** - Add JSX support for Chat SDK:
    ```json
    {
-     "dependencies": {
-       "ai": "^6.0.0",
-       "@ai-sdk/gateway": "latest"
+     "compilerOptions": {
+       "jsx": "react-jsx",
+       "jsxImportSource": "chat"
      }
    }
    ```
-   - If `@ai-sdk/openai` exists, **remove it**
-   - If `@ai-sdk/gateway` is missing, **add it**
 
-2. **Update all AI code files** - Search for and replace:
-   - `import { openai } from "@ai-sdk/openai"` → `import { gateway } from "@ai-sdk/gateway"`
-   - `model: openai("gpt-4o-mini")` → `model: gateway("openai/gpt-4o-mini")`
-   - `model: openai("gpt-4o")` → `model: gateway("openai/gpt-4o")`
+### Step 1.6: Verify Project Structure
 
-3. **Run `pnpm install`** to apply dependency changes
+After setup, verify the project structure:
+- `lib/bot.tsx` - Bot instance
+- `app/api/webhooks/[platform]/route.ts` - Webhook handler
+- `manifest.json` - Slack app configuration (will be created in Phase 2)
 
-**If using a direct provider SDK:**
-- Keep the corresponding `@ai-sdk/*` package
-- Ensure the required API key is documented for Phase 3
+If the structure looks correct, proceed to Phase 2.
 
 ---
 
 ## For EXISTING Projects
 
 Verify the project structure:
-- `server/api/slack/events.post.ts` - Events endpoint
-- `server/lib/ai/agent.ts` - Agent logic
-- `server/lib/ai/tools.ts` - Tool definitions
-- `server/listeners/` - Event handlers
+- `lib/bot.ts` or `lib/bot.tsx` - Bot instance
+- `app/api/webhooks/[platform]/route.ts` - Webhook handler
 - `manifest.json` - Slack app configuration
 
 If the structure looks correct, proceed to Phase 2 (Create Slack App) or Phase 3 (Configure Environment) depending on what's already done.
