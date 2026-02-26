@@ -22,9 +22,17 @@ vercel
 ```
 
 **Option B - Via Dashboard:**
+
+### If using Chat SDK
 > 1. Go to https://vercel.com/new
 > 2. Import your GitHub repository
 > 3. Framework Preset should auto-detect **Next.js**
+> 4. Click **Deploy**
+
+### If using Bolt for JavaScript
+> 1. Go to https://vercel.com/new
+> 2. Import your GitHub repository
+> 3. Set Framework Preset to **Other**
 > 4. Click **Deploy**
 
 ---
@@ -34,7 +42,9 @@ vercel
 Tell the user:
 
 > **Add environment variables in Vercel:**
->
+
+### If using Chat SDK
+
 > **Option A - Via CLI:**
 > ```bash
 > vc env add SLACK_BOT_TOKEN
@@ -51,14 +61,31 @@ Tell the user:
 >    - `SLACK_SIGNING_SECRET` = your signing secret
 >    - `REDIS_URL` = your Redis connection URL
 > 4. Click **Save**
+
+### If using Bolt for JavaScript
+
+> **Option A - Via CLI:**
+> ```bash
+> vc env add SLACK_BOT_TOKEN
+> vc env add SLACK_SIGNING_SECRET
+> ```
+> Paste each value when prompted. Select all environments (Production, Preview, Development) when asked.
 >
-> **After adding variables:** Redeploy the project for changes to take effect.
-> - CLI: `vercel --prod`
-> - Dashboard: Deployments -> ... -> Redeploy
->
-> **Note for AI configuration:**
-> - **Using Vercel AI Gateway?** No AI API keys needed - it handles authentication automatically.
-> - **Using a direct provider SDK?** Also add your provider's API key (e.g., `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`).
+> **Option B - Via Dashboard:**
+> 1. Go to your project in Vercel Dashboard
+> 2. Go to **Settings** -> **Environment Variables**
+> 3. Add these variables:
+>    - `SLACK_BOT_TOKEN` = your bot token
+>    - `SLACK_SIGNING_SECRET` = your signing secret
+> 4. Click **Save**
+
+**After adding variables:** Redeploy the project for changes to take effect.
+- CLI: `vercel --prod`
+- Dashboard: Deployments -> ... -> Redeploy
+
+**Note for AI configuration:**
+- **Using Vercel AI Gateway?** No AI API keys needed - it handles authentication automatically.
+- **Using a direct provider SDK?** Also add your provider's API key (e.g., `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`).
 
 ---
 
@@ -86,9 +113,16 @@ Tell the user:
 >    (or find it as the `VERCEL_AUTOMATION_BYPASS_SECRET` environment variable)
 > 3. Share this secret with me so I can add it to the manifest URLs
 
-Once they provide the secret, the URL format will be:
+Once they provide the secret, the URL format depends on the framework:
+
+### If using Chat SDK
 ```
 https://YOUR-APP.vercel.app/api/webhooks/slack?x-vercel-protection-bypass=YOUR_SECRET
+```
+
+### If using Bolt for JavaScript
+```
+https://YOUR-APP.vercel.app/api/slack/events?x-vercel-protection-bypass=YOUR_SECRET
 ```
 
 **Update the manifest:**
@@ -140,7 +174,9 @@ Tell the user:
 
 ### "url_verification" failed
 - Make sure your deployment is complete
-- Check the URL is correct (includes `/api/webhooks/slack`)
+- Check the URL is correct:
+  - **Chat SDK:** includes `/api/webhooks/slack`
+  - **Bolt:** includes `/api/slack/events`
 - If using Vercel with Deployment Protection, add the bypass secret to your URL
 
 ### "invalid_auth" error

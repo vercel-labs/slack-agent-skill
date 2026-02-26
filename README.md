@@ -1,15 +1,19 @@
 # Slack Agent Skill
 
-An agent-agnostic skill for building and deploying Slack agents on Vercel. This skill provides comprehensive guidance for developing Slack bots with AI capabilities using the [Chat SDK](https://www.chat-sdk.dev/) (`chat` + `@chat-adapter/slack`) with Next.js.
+An agent-agnostic skill for building and deploying Slack agents on Vercel. Supports two frameworks:
+
+- **[Chat SDK](https://www.chat-sdk.dev/)** (Recommended for new projects) — `chat` + `@chat-adapter/slack` with Next.js
+- **[Bolt for JavaScript](https://slack.dev/bolt-js/)** (For existing Bolt projects) — `@slack/bolt` with Nitro
 
 ## Features
 
 - **Interactive Setup Wizard**: Step-by-step guidance from project creation to production deployment
-- **Chat SDK Patterns**: JSX components, event handlers, thread management, and state persistence
+- **Dual Framework Support**: Chat SDK (JSX components, thread subscriptions) and Bolt for JavaScript (Block Kit, event listeners)
+- **Custom Implementation Planning**: Generates a tailored plan based on your agent's purpose before scaffolding
 - **Quality Standards**: Embedded testing and code quality requirements
 - **AI Integration**: Support for Vercel AI Gateway and direct provider SDKs
-- **Comprehensive Patterns**: Slack-specific development patterns and best practices
-- **Testing Framework**: Vitest configuration and sample tests
+- **Comprehensive Patterns**: Slack-specific development patterns and best practices for both frameworks
+- **Testing Framework**: Vitest configuration and sample tests for both stacks
 
 ## Installation
 
@@ -33,26 +37,30 @@ Run the slash command:
 /slack-agent
 
 Or with arguments:
-/slack-agent new       # Start fresh project
-/slack-agent configure # Configure existing project
+/slack-agent new       # Start fresh project (recommends Chat SDK)
+/slack-agent configure # Configure existing project (auto-detects framework)
 /slack-agent deploy    # Deploy to production
 /slack-agent test      # Set up testing
 ```
 
 The wizard will guide you through:
-1. Project setup and LLM provider selection
-2. Slack app creation with customized manifest
-3. Environment configuration
-4. Local testing with ngrok
-5. Production deployment to Vercel
-6. Test framework setup
+1. Framework selection and project setup
+2. Custom implementation plan generation and approval
+3. Slack app creation with customized manifest
+4. Environment configuration
+5. Local testing with ngrok
+6. Production deployment to Vercel
+7. Test framework setup
 
 ### Development
 
-When working on an existing Slack agent project, the skill automatically provides:
+When working on an existing Slack agent project, the skill automatically detects the framework from `package.json`:
+- **`"chat"` in dependencies** — Uses Chat SDK patterns
+- **`"@slack/bolt"` in dependencies** — Uses Bolt patterns
 
+The skill then provides framework-appropriate:
 - Code quality standards (linting, testing, TypeScript)
-- Slack-specific patterns (event handlers, slash commands, JSX components)
+- Slack-specific patterns (event handlers, slash commands, UI components)
 - AI integration guidance (Vercel AI Gateway, direct providers)
 - Deployment best practices
 
@@ -87,6 +95,7 @@ The skill enforces these requirements:
 ## Related Resources
 
 - [Chat SDK Documentation](https://www.chat-sdk.dev/)
+- [Bolt for JavaScript Documentation](https://slack.dev/bolt-js/)
 - [AI SDK Documentation](https://ai-sdk.dev)
 - [Slack API Documentation](https://api.slack.com)
 - [Vercel Documentation](https://vercel.com/docs)
