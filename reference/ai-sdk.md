@@ -303,7 +303,9 @@ If migrating from v4/v5:
 
 ### Streaming to Slack
 
-The Chat SDK handles streaming updates to Slack automatically. Simply pass the stream to `thread.post()`:
+#### If using Chat SDK
+
+The Chat SDK handles streaming updates to Slack automatically:
 
 ```typescript
 import { streamText } from "ai";
@@ -323,34 +325,70 @@ bot.onNewMention(async (thread, message) => {
 });
 ```
 
-### Tool Results in Slack
+#### If using Bolt for JavaScript
 
-Use AI SDK tools with Chat SDK thread posting:
+Manually post an initial message and update it with streamed content:
 
 ```typescript
-import { generateText, tool } from "ai";
+import { streamText } from "ai";
 import { gateway } from "@ai-sdk/gateway";
-import { z } from "zod";
 
+app.event('app_mention', async ({ event, client }) => {
+  const result = await streamText({
+    model: gateway("openai/gpt-4o-mini"),
+    maxOutputTokens: 1000,
+    prompt: event.text.replace(/<@[A-Z0-9]+>/g, '').trim(),
+  });
+
+  const msg = await client.chat.postMessage({
+    channel: event.channel,
+    thread_ts: event.thread_ts || event.ts,
+    text: "Thinking...",
+  });
+
+  let fullText = "";
+  for await (const chunk of result.textStream) {
+    fullText += chunk;
+    await client.chat.update({
+      channel: event.channel,
+      ts: msg.ts,
+      text: fullText,
+    });
+  }
+});
+```
+
+### Tool Results in Slack
+
+AI SDK tools work identically in both frameworks. The difference is how you post results:
+
+#### If using Chat SDK
+
+```typescript
 bot.onNewMention(async (thread, message) => {
   const result = await generateText({
     model: gateway("openai/gpt-4o-mini"),
-    tools: {
-      lookupUser: tool({
-        description: "Look up a Slack user",
-        inputSchema: z.object({
-          userId: z.string(),
-        }),
-        execute: async ({ userId }) => {
-          // Fetch user info via your preferred method
-          return { name: "Test User", email: "test@example.com" };
-        },
-      }),
-    },
+    tools: { /* your tools */ },
     prompt: message.text,
   });
-
   await thread.post(result.text);
+});
+```
+
+#### If using Bolt for JavaScript
+
+```typescript
+app.event('app_mention', async ({ event, client }) => {
+  const result = await generateText({
+    model: gateway("openai/gpt-4o-mini"),
+    tools: { /* your tools */ },
+    prompt: event.text.replace(/<@[A-Z0-9]+>/g, '').trim(),
+  });
+  await client.chat.postMessage({
+    channel: event.channel,
+    thread_ts: event.thread_ts || event.ts,
+    text: result.text,
+  });
 });
 ```
 

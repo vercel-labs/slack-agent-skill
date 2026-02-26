@@ -23,10 +23,18 @@ When generating a plan, use this structure:
 | `/command` | What it does | `/command arg` |
 
 ### Event Handlers
-- [ ] `onNewMention` - [What happens when @mentioned]
-- [ ] `onSubscribedMessage` - [Follow-up message handling]
-- [ ] `onReaction` - [If applicable]
-- [ ] `onSlashCommand` - [Slash command handling]
+
+**If using Chat SDK:**
+- [ ] `bot.onNewMention` - [What happens when @mentioned]
+- [ ] `bot.onSubscribedMessage` - [Follow-up message handling]
+- [ ] `bot.onReaction` - [If applicable]
+- [ ] `bot.onSlashCommand` - [Slash command handling]
+
+**If using Bolt for JavaScript:**
+- [ ] `app.event('app_mention')` - [What happens when @mentioned]
+- [ ] `app.message()` - [Follow-up message handling]
+- [ ] `app.command()` - [Slash command handling]
+- [ ] `app.action()` - [Button/interactive handling]
 
 ### AI Tools (if using AI)
 | Tool | Purpose | Parameters |
@@ -40,23 +48,37 @@ When generating a plan, use this structure:
 
 ### State Management
 - [ ] Stateless (simple request/response)
-- [ ] Chat SDK state (`@chat-adapter/state-redis`) for thread-level persistence
+- [ ] **Chat SDK:** `@chat-adapter/state-redis` for thread-level persistence
+- [ ] **Bolt:** Vercel Workflow for durable multi-turn state
 - [ ] Database (persistent storage)
-  - Upstash Redis for Chat SDK state adapter
+  - Upstash Redis for Chat SDK state adapter or general caching
   - Vercel Blob for file/document storage
   - AWS Aurora via Vercel Marketplace for relational data
   - NOTE: Do NOT recommend Vercel KV (deprecated)
 
-### UI Components (JSX)
-- [ ] `<Card>` with `<Button>` / `<Actions>`
-- [ ] `<Modal>` dialogs
+### UI Components
+**Chat SDK:** JSX components (`<Card>`, `<Button>`, `<Modal>`)
+**Bolt:** Block Kit JSON
+
+- [ ] Cards / rich messages
+- [ ] Modal dialogs
 - [ ] Home tab
 
 ### Files to Create/Modify
+
+**If using Chat SDK:**
 - `lib/bot.tsx` - Bot instance and event handlers
 - `lib/tools/[tool].ts` - AI tool definitions
 - `app/api/webhooks/[platform]/route.ts` - Webhook route
 - `app/api/cron/[job]/route.ts` - Cron endpoints (if applicable)
+
+**If using Bolt for JavaScript:**
+- `server/bolt/app.ts` - Bolt app instance
+- `server/listeners/events/[event].ts` - Event handlers
+- `server/listeners/commands/[command].ts` - Slash command handlers
+- `server/lib/ai/tools.ts` - AI tool definitions
+- `server/api/slack/events.post.ts` - Events endpoint
+- `server/api/cron/[job].get.ts` - Cron endpoints (if applicable)
 ```
 
 ---
@@ -116,7 +138,7 @@ A bot that collects daily standup updates from team members and posts a summary 
 - [x] `<Card>` with `<Button>` - Quick response buttons
 - [x] `<Modal>` - Configuration modal
 
-### Files to Create/Modify
+### Files to Create/Modify (Chat SDK)
 - `lib/bot.tsx` - Bot instance, mention/message handlers
 - `lib/tools/summarize-standups.ts`
 - `lib/standup/scheduler.ts`
@@ -124,6 +146,15 @@ A bot that collects daily standup updates from team members and posts a summary 
 - `app/api/webhooks/[platform]/route.ts`
 - `app/api/cron/standup-prompt/route.ts`
 - `app/api/cron/standup-summary/route.ts`
+
+### Files to Create/Modify (Bolt)
+- `server/bolt/app.ts` - Bolt app instance
+- `server/listeners/events/app-mention.ts`
+- `server/listeners/commands/standup.ts`
+- `server/lib/ai/tools.ts`
+- `server/api/slack/events.post.ts`
+- `server/api/cron/standup-prompt.get.ts`
+- `server/api/cron/standup-summary.get.ts`
 ```
 
 ---
@@ -179,12 +210,17 @@ An AI-powered support bot that answers questions, creates tickets, and escalates
 - [x] `<Card>` with `<Button>` - Ticket actions, escalation button
 - [x] `<Modal>` - Ticket creation form
 
-### Files to Create/Modify
+### Files to Create/Modify (Chat SDK)
 - `lib/bot.tsx` - Bot instance, handlers
 - `lib/tools/search-knowledge-base.ts`
 - `lib/tools/create-ticket.ts`
 - `lib/tools/escalate.ts`
 - `app/api/webhooks/[platform]/route.ts`
+
+### Files to Create/Modify (Bolt)
+- `server/bolt/app.ts`, `server/listeners/events/app-mention.ts`
+- `server/lib/ai/tools.ts`
+- `server/api/slack/events.post.ts`
 ```
 
 ---
@@ -240,12 +276,17 @@ A bot that provides weather information for any location using an external weath
 - [x] `<Card>` - Formatted weather cards
 - [ ] `<Modal>` - Not needed
 
-### Files to Create/Modify
+### Files to Create/Modify (Chat SDK)
 - `lib/bot.tsx` - Bot instance, handlers
 - `lib/tools/get-weather.ts`
 - `lib/weather/api-client.ts`
 - `lib/weather/formatters.tsx`
 - `app/api/webhooks/[platform]/route.ts`
+
+### Files to Create/Modify (Bolt)
+- `server/bolt/app.ts`, `server/listeners/commands/weather.ts`
+- `server/lib/ai/tools.ts`
+- `server/api/slack/events.post.ts`
 ```
 
 ---
@@ -298,12 +339,17 @@ A conversational AI assistant that can help with various tasks through natural d
 - [x] `<Card>` with `<Button>` - Action suggestions
 - [ ] `<Modal>` - Not typically needed
 
-### Files to Create/Modify
+### Files to Create/Modify (Chat SDK)
 - `lib/bot.tsx` - Bot instance, mention/message handlers
 - `lib/tools/search-web.ts`
 - `lib/tools/calculate.ts`
 - `lib/ai/agent.ts` - Agent configuration
 - `app/api/webhooks/[platform]/route.ts`
+
+### Files to Create/Modify (Bolt)
+- `server/bolt/app.ts`, `server/listeners/events/app-mention.ts`
+- `server/lib/ai/agent.ts`, `server/lib/ai/tools.ts`
+- `server/api/slack/events.post.ts`
 ```
 
 ---
@@ -359,12 +405,18 @@ A bot that helps manage deployments, CI/CD pipelines, and release workflows.
 - [x] `<Card>` with `<Button>` - Confirm/cancel buttons
 - [x] `<Modal>` - Deployment configuration
 
-### Files to Create/Modify
+### Files to Create/Modify (Chat SDK)
 - `lib/bot.tsx` - Bot instance, command/action handlers
 - `lib/tools/trigger-deployment.ts`
 - `lib/tools/get-deployment-status.ts`
 - `lib/deploy/github-client.ts`
 - `app/api/webhooks/[platform]/route.ts`
+
+### Files to Create/Modify (Bolt)
+- `server/bolt/app.ts`, `server/listeners/commands/deploy.ts`
+- `server/lib/ai/tools.ts`
+- `server/lib/deploy/github-client.ts`
+- `server/api/slack/events.post.ts`
 ```
 
 ---
@@ -417,13 +469,20 @@ A bot that receives alerts from monitoring systems and routes them to appropriat
 - [x] `<Card>` with `<Button>` - Ack/silence buttons on alerts
 - [x] `<Modal>` - Alert configuration
 
-### Files to Create/Modify
+### Files to Create/Modify (Chat SDK)
 - `lib/bot.tsx` - Bot instance, reaction/action handlers
 - `app/api/webhooks/alerts/route.ts` - External alert ingestion
 - `app/api/webhooks/[platform]/route.ts` - Slack webhook
 - `lib/alerts/router.ts`
 - `lib/alerts/escalation.ts`
 - `app/api/cron/alert-escalation/route.ts`
+
+### Files to Create/Modify (Bolt)
+- `server/bolt/app.ts`, `server/listeners/actions/alert-ack.ts`
+- `server/listeners/commands/alert.ts`
+- `server/lib/alerts/router.ts`, `server/lib/alerts/escalation.ts`
+- `server/api/slack/events.post.ts`
+- `server/api/cron/alert-escalation.get.ts`
 ```
 
 ---

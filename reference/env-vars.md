@@ -6,7 +6,7 @@ Complete reference for all environment variables used in Slack agent projects.
 
 ### SLACK_BOT_TOKEN
 
-**Description:** OAuth token for authenticating Slack API calls. Auto-detected by `@chat-adapter/slack`.
+**Description:** OAuth token for authenticating Slack API calls. Auto-detected by `@chat-adapter/slack` (Chat SDK) or used with `new App({ token })` (Bolt).
 
 **Source:**
 1. Go to https://api.slack.com/apps
@@ -25,7 +25,7 @@ Complete reference for all environment variables used in Slack agent projects.
 
 ### SLACK_SIGNING_SECRET
 
-**Description:** Secret used to verify requests originate from Slack. Auto-detected by `@chat-adapter/slack`.
+**Description:** Secret used to verify requests originate from Slack. Auto-detected by `@chat-adapter/slack` (Chat SDK) or `@vercel/slack-bolt` (Bolt).
 
 **Source:**
 1. Go to https://api.slack.com/apps
@@ -35,7 +35,7 @@ Complete reference for all environment variables used in Slack agent projects.
 
 **Format:** 32-character hexadecimal string
 
-**Usage:** Automatically used by the Chat SDK Slack adapter to verify request signatures.
+**Usage:** Automatically used by the Chat SDK Slack adapter or `@vercel/slack-bolt` VercelReceiver to verify request signatures.
 
 **Security:**
 - Never commit to version control
@@ -44,9 +44,9 @@ Complete reference for all environment variables used in Slack agent projects.
 
 ---
 
-### REDIS_URL
+### REDIS_URL (Chat SDK only)
 
-**Description:** Redis connection URL for the Chat SDK state adapter (`@chat-adapter/state-redis`).
+**Description:** Redis connection URL for the Chat SDK state adapter (`@chat-adapter/state-redis`). **Not required for Bolt projects** unless you add Redis manually.
 
 **Source:**
 - [Upstash Redis](https://upstash.com) (recommended for serverless)
@@ -242,9 +242,10 @@ const result = await generateText({
 
 ## Local Development Setup
 
-Create a `.env` file in your project root:
+Create a `.env` file in your project root.
 
-**Using Vercel AI Gateway (recommended):**
+### If using Chat SDK (with Vercel AI Gateway)
+
 ```env
 # Required - Slack credentials (auto-detected by Chat SDK)
 SLACK_BOT_TOKEN=xoxb-your-token-here
@@ -263,19 +264,12 @@ LOG_LEVEL=debug
 # No AI keys needed - Vercel AI Gateway handles this automatically!
 ```
 
-**Using Direct Provider SDK:**
+### If using Bolt for JavaScript (with Vercel AI Gateway)
+
 ```env
-# Required - Slack credentials (auto-detected by Chat SDK)
+# Required - Slack credentials
 SLACK_BOT_TOKEN=xoxb-your-token-here
 SLACK_SIGNING_SECRET=your-signing-secret
-
-# Required - State persistence
-REDIS_URL=redis://default:password@host:port
-
-# AI Provider API Key (choose one based on your provider)
-OPENAI_API_KEY=sk-your-openai-key
-# ANTHROPIC_API_KEY=sk-ant-your-anthropic-key
-# GOOGLE_GENERATIVE_AI_API_KEY=your-google-key
 
 # Development tunnel
 NGROK_AUTH_TOKEN=your-ngrok-token
@@ -283,6 +277,19 @@ NGROK_AUTH_TOKEN=your-ngrok-token
 # Optional
 NODE_ENV=development
 LOG_LEVEL=debug
+
+# No AI keys needed - Vercel AI Gateway handles this automatically!
+# No REDIS_URL needed unless you add Redis manually
+```
+
+### Using Direct Provider SDK (either framework)
+
+Add your provider's API key:
+```env
+# AI Provider API Key (choose one based on your provider)
+OPENAI_API_KEY=sk-your-openai-key
+# ANTHROPIC_API_KEY=sk-ant-your-anthropic-key
+# GOOGLE_GENERATIVE_AI_API_KEY=your-google-key
 ```
 
 ## Security Best Practices
@@ -383,7 +390,9 @@ function getRequiredEnv(name: string): string {
 const token = getRequiredEnv('SLACK_BOT_TOKEN');
 ```
 
-### In Next.js Config
+### In Framework Config
+
+#### If using Chat SDK (Next.js)
 
 ```typescript
 // next.config.ts
@@ -394,6 +403,24 @@ const nextConfig: NextConfig = {
 };
 
 export default nextConfig;
+```
+
+#### If using Bolt for JavaScript (Nitro)
+
+```typescript
+// nitro.config.ts
+export default defineNitroConfig({
+  runtimeConfig: {
+    slackBotToken: process.env.SLACK_BOT_TOKEN,
+    slackSigningSecret: process.env.SLACK_SIGNING_SECRET,
+  },
+});
+```
+
+```typescript
+// Access via useRuntimeConfig()
+const config = useRuntimeConfig();
+const token = config.slackBotToken;
 ```
 
 ## Troubleshooting

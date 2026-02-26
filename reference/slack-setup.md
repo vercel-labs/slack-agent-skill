@@ -19,7 +19,14 @@ Complete guide for creating and configuring a Slack app for your agent.
 
 5. Switch to the **JSON** tab
 6. Delete any existing content
-7. Paste the contents of your project's `manifest.json`:
+7. Paste the contents of your project's `manifest.json`
+
+**The webhook URL depends on your framework:**
+
+- **Chat SDK:** `https://your-domain.vercel.app/api/webhooks/slack`
+- **Bolt for JavaScript:** `https://your-domain.vercel.app/api/slack/events`
+
+#### Sample Manifest (Chat SDK)
 
 ```json
 {
@@ -82,6 +89,27 @@ Complete guide for creating and configuring a Slack app for your agent.
 }
 ```
 
+#### Sample Manifest (Bolt for JavaScript)
+
+Uses the same structure, but with a different webhook URL path:
+
+```json
+{
+  "settings": {
+    "event_subscriptions": {
+      "request_url": "https://your-domain.vercel.app/api/slack/events",
+      "bot_events": ["app_mention", "assistant_thread_started", "assistant_thread_context_changed", "message.channels", "message.groups", "message.im", "message.mpim"]
+    },
+    "interactivity": {
+      "is_enabled": true,
+      "request_url": "https://your-domain.vercel.app/api/slack/events"
+    }
+  }
+}
+```
+
+**Note:** The Chat SDK manifest includes `reactions:read` and `reactions:write` scopes for the `onReaction` handler. Add these to Bolt projects if you handle reaction events.
+
 8. Click **Next**
 9. Review the permissions and click **Create**
 
@@ -120,14 +148,13 @@ If your Vercel project has Deployment Protection enabled, you'll need a bypass s
 1. Go to Vercel Dashboard -> Project Settings -> Deployment Protection
 2. Under "Protection Bypass for Automation", copy the secret
 3. Add it as a query parameter to your URLs:
-   ```
-   https://your-app.vercel.app/api/webhooks/slack?x-vercel-protection-bypass=YOUR_SECRET
-   ```
+   - **Chat SDK:** `https://your-app.vercel.app/api/webhooks/slack?x-vercel-protection-bypass=YOUR_SECRET`
+   - **Bolt:** `https://your-app.vercel.app/api/slack/events?x-vercel-protection-bypass=YOUR_SECRET`
 
 ### Update the Manifest
 
 1. Edit your project's `manifest.json`
-2. Update the URLs in these fields:
+2. Update the URLs in these fields (using your framework's webhook path):
    ```json
    {
      "settings": {
@@ -140,6 +167,7 @@ If your Vercel project has Deployment Protection enabled, you'll need a bypass s
      }
    }
    ```
+   **Chat SDK** uses `/api/webhooks/slack`. **Bolt** uses `/api/slack/events`.
 3. Go to your app at https://api.slack.com/apps
 4. Navigate to **App Manifest** in the sidebar
 5. Switch to the **JSON** tab
@@ -153,7 +181,7 @@ This approach is more reliable than manually editing Event Subscriptions and Int
 For local development, use ngrok to create a tunnel:
 
 ```bash
-# Start your Next.js dev server
+# Start your dev server
 pnpm dev
 
 # In a separate terminal, expose your local server
@@ -161,9 +189,8 @@ ngrok http 3000
 ```
 
 Then update your Slack app's manifest with the ngrok URL:
-```
-https://abc123.ngrok.io/api/webhooks/slack
-```
+- **Chat SDK:** `https://abc123.ngrok.io/api/webhooks/slack`
+- **Bolt:** `https://abc123.ngrok.io/api/slack/events`
 
 ## Troubleshooting
 
@@ -173,8 +200,8 @@ https://abc123.ngrok.io/api/webhooks/slack
 
 **Solutions:**
 1. Ensure your server is running
-2. Check the URL is correct and accessible (must end with `/api/webhooks/slack`)
-3. Verify your endpoint returns the `challenge` parameter correctly (Chat SDK handles this automatically)
+2. Check the URL is correct and accessible (Chat SDK: `/api/webhooks/slack`, Bolt: `/api/slack/events`)
+3. Verify your endpoint returns the `challenge` parameter correctly (both frameworks handle this automatically)
 4. If using Vercel with Deployment Protection, add the bypass secret to your URL (see Step 4)
 
 ### "invalid_auth" errors
@@ -192,7 +219,7 @@ https://abc123.ngrok.io/api/webhooks/slack
 
 **Solutions:**
 1. Verify **Enable Events** is toggled On
-2. Check the Request URL is correct (`/api/webhooks/slack`)
+2. Check the Request URL is correct (Chat SDK: `/api/webhooks/slack`, Bolt: `/api/slack/events`)
 3. Ensure all required bot events are subscribed
 4. Check your server logs for incoming requests
 
