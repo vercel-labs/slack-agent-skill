@@ -1,11 +1,16 @@
 ---
 name: slack-agent
-description: Use when working on Slack agent/bot code, Chat SDK applications, or projects using @chat-adapter/slack. Provides development patterns, testing requirements, and quality standards.
-version: 3.0.0
+description: Use when working on Slack agent/bot code, Chat SDK applications, Bolt for JavaScript projects, or projects using @chat-adapter/slack or @slack/bolt. Provides development patterns, testing requirements, and quality standards.
+version: 4.0.0
 user-invocable: true
 ---
 
-# Slack Agent Development Skill (Chat SDK)
+# Slack Agent Development Skill
+
+This skill supports two frameworks for building Slack agents:
+
+- **Chat SDK** (Recommended for new projects) — `chat` + `@chat-adapter/slack`
+- **Bolt for JavaScript** (For existing Bolt projects) — `@slack/bolt` + `@vercel/slack-bolt`
 
 ## Skill Invocation Handling
 
@@ -25,17 +30,27 @@ When this skill is invoked via `/slack-agent`, check for arguments and route acc
 
 If invoked without arguments, detect the project state and route appropriately:
 
-1. **No `package.json` with `chat`** → Treat as `new`, start Phase 1
+1. **No `package.json` with `chat` or `@slack/bolt`** → Treat as `new`, start Phase 1
 2. **Has project but no customized `manifest.json`** → Start Phase 2
 3. **Has project but no `.env` file** → Start Phase 3
 4. **Has `.env` but not tested** → Start Phase 4
 5. **Tested but not deployed** → Start Phase 5
 6. **Otherwise** → Provide general assistance using this skill's patterns
 
+### Framework Detection
+
+Detect which framework the project uses:
+
+- **`package.json` contains `"chat"`** → Chat SDK project
+- **`package.json` contains `"@slack/bolt"`** → Bolt project
+- **Neither detected** → New project, recommend Chat SDK (offer Bolt as alternative)
+
+Store the detected framework and use it to show the correct patterns throughout the wizard and development guidance.
+
 ### Wizard Phases
 
 The wizard is located in `./wizard/` with these phases:
-- `1-project-setup.md` - Understand purpose, generate custom implementation plan
+- `1-project-setup.md` - Understand purpose, choose framework, generate custom implementation plan
 - `1b-approve-plan.md` - Present plan for user approval before scaffolding
 - `2-create-slack-app.md` - Customize manifest, create app in Slack
 - `3-configure-environment.md` - Set up .env with credentials
@@ -46,27 +61,43 @@ The wizard is located in `./wizard/` with these phases:
 **IMPORTANT:** For `new` projects, you MUST:
 1. Read `./wizard/1-project-setup.md` first
 2. Ask the user what kind of agent they want to build
-3. Generate a custom implementation plan using `./reference/agent-archetypes.md`
-4. Present the plan for approval (Phase 1b) BEFORE scaffolding the project
-5. Only proceed to scaffold after the plan is approved
+3. Offer framework choice (Chat SDK recommended, Bolt as alternative)
+4. Generate a custom implementation plan using `./reference/agent-archetypes.md`
+5. Present the plan for approval (Phase 1b) BEFORE scaffolding the project
+6. Only proceed to scaffold after the plan is approved
+
+---
+
+## Framework Selection Guide
+
+| Aspect | Chat SDK | Bolt for JavaScript |
+|--------|----------|---------------------|
+| **Best for** | New projects | Existing Bolt codebases |
+| **Packages** | `chat`, `@chat-adapter/slack`, `@chat-adapter/state-redis` | `@slack/bolt`, `@vercel/slack-bolt` |
+| **Server** | Next.js App Router | Nitro (H3-based) |
+| **Event handling** | `bot.onNewMention()`, `bot.onSubscribedMessage()` | `app.event()`, `app.command()`, `app.message()` |
+| **Webhook route** | `app/api/webhooks/[platform]/route.ts` | `server/api/slack/events.post.ts` |
+| **Message posting** | `thread.post("text")` / `thread.post(<Card>...)` | `client.chat.postMessage({ channel, text, blocks })` |
+| **UI components** | JSX: `<Card>`, `<Button>`, `<Actions>` | Raw Block Kit JSON |
+| **State** | `@chat-adapter/state-redis` / `thread.state` | Manual / Vercel Workflow |
+| **Config** | `new Chat({ adapters: { slack } })` | `new App({ token, signingSecret, receiver })` |
 
 ---
 
 ## General Development Guidance
 
-You are working on a Slack agent project built with the [Chat SDK](https://www.chat-sdk.dev/). Follow these mandatory practices for all code changes.
+You are working on a Slack agent project. Follow these mandatory practices for all code changes.
 
 ## Project Stack
 
-This project uses:
+### If using Chat SDK
+
 - **Framework**: Next.js (App Router)
 - **Chat SDK**: `chat` + `@chat-adapter/slack` for Slack bot functionality
 - **State**: `@chat-adapter/state-redis` for state persistence (or in-memory for development)
 - **AI**: AI SDK v6 with @ai-sdk/gateway
 - **Linting**: Biome
 - **Package Manager**: pnpm
-
-### Dependencies
 
 ```json
 {
@@ -78,6 +109,27 @@ This project uses:
     "@chat-adapter/state-redis": "latest",
     "zod": "^3.x",
     "next": "^15.x"
+  }
+}
+```
+
+### If using Bolt for JavaScript
+
+- **Server**: Nitro (H3-based) with file-based routing
+- **Slack SDK**: `@vercel/slack-bolt` for serverless Slack apps (wraps Bolt for JavaScript)
+- **AI**: AI SDK v6 with @ai-sdk/gateway
+- **Workflows**: Workflow DevKit for durable execution
+- **Linting**: Biome
+- **Package Manager**: pnpm
+
+```json
+{
+  "dependencies": {
+    "ai": "^6.0.0",
+    "@ai-sdk/gateway": "latest",
+    "@slack/bolt": "^4.x",
+    "@vercel/slack-bolt": "^1.0.2",
+    "zod": "^3.x"
   }
 }
 ```
@@ -125,7 +177,15 @@ pnpm test
 
 **For ANY code change, you MUST write or update unit tests.**
 
+### If using Chat SDK
+
 - **Location**: Co-located `*.test.ts` files or `lib/__tests__/`
+- **Framework**: Vitest
+- **Coverage**: All exported functions must have tests
+
+### If using Bolt for JavaScript
+
+- **Location**: Co-located `*.test.ts` files or `server/__tests__/`
 - **Framework**: Vitest
 - **Coverage**: All exported functions must have tests
 
@@ -148,7 +208,7 @@ describe('myFunction', () => {
 ### E2E Tests for User-Facing Changes
 
 If you modify:
-- Bot mention handlers
+- Bot mention handlers / Slack message handlers
 - Slash commands
 - Interactive components (buttons, modals)
 - Bot responses
@@ -157,11 +217,13 @@ You MUST add or update E2E tests that verify the full flow.
 
 ---
 
-## Bot Setup Pattern (CRITICAL)
+## Bot Setup Patterns (CRITICAL)
+
+### If using Chat SDK
 
 Use the Chat SDK to define your bot instance. This is the central entry point for all Slack bot functionality.
 
-### Bot Instance (`lib/bot.ts` or `lib/bot.tsx`)
+#### Bot Instance (`lib/bot.ts` or `lib/bot.tsx`)
 
 ```typescript
 import { Chat } from "chat";
@@ -179,7 +241,7 @@ export const bot = new Chat({
 
 **Note:** If your bot uses JSX components (Card, Button, etc.), the file must use the `.tsx` extension.
 
-### Webhook Route (`app/api/webhooks/[platform]/route.ts`)
+#### Webhook Route (`app/api/webhooks/[platform]/route.ts`)
 
 ```typescript
 import { after } from "next/server";
@@ -200,43 +262,91 @@ The Chat SDK automatically handles:
 - Background processing via `waitUntil`
 - Signature verification
 
+### If using Bolt for JavaScript
+
+Use `@vercel/slack-bolt` to handle all Slack events. This package automatically handles:
+- Content-type detection (JSON vs form-urlencoded)
+- URL verification challenges
+- 3-second ack timeout (built-in `ackTimeoutMs: 3001`)
+- Background processing via Vercel Fluid Compute's `waitUntil`
+
+#### Bolt App Setup (`server/bolt/app.ts`)
+
+```typescript
+import { App } from "@slack/bolt";
+import { VercelReceiver } from "@vercel/slack-bolt";
+
+const receiver = new VercelReceiver();
+const app = new App({
+  token: process.env.SLACK_BOT_TOKEN,
+  signingSecret: process.env.SLACK_SIGNING_SECRET,
+  receiver,
+  deferInitialization: true,
+});
+
+export { app, receiver };
+```
+
+#### Events Handler (`server/api/slack/events.post.ts`)
+
+```typescript
+import { createHandler } from "@vercel/slack-bolt";
+import { defineEventHandler, getRequestURL, readRawBody } from "h3";
+import { app, receiver } from "../../bolt/app";
+
+const handler = createHandler(app, receiver);
+
+export default defineEventHandler(async (event) => {
+  const rawBody = await readRawBody(event, "utf8");
+  const request = new Request(getRequestURL(event), {
+    method: event.method,
+    headers: event.headers,
+    body: rawBody,
+  });
+  return await handler(request);
+});
+```
+
+**Why buffer the body?** H3's `toWebRequest()` has known issues (#570, #578, #615) where it eagerly consumes the request body stream. When `@vercel/slack-bolt` later calls `req.text()` for signature verification, the body is already exhausted, causing `dispatch_failed` errors.
+
+#### VercelReceiver Options Reference
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `signingSecret` | `SLACK_SIGNING_SECRET` env var | Request verification secret |
+| `signatureVerification` | `true` | Enable/disable signature verification |
+| `ackTimeoutMs` | `3001` | Ack timeout in milliseconds |
+| `logLevel` | `INFO` | Logging level |
+
 ---
 
 ## Event Handler Patterns
 
-### Mention Handler
+### If using Chat SDK
+
+#### Mention Handler
 
 ```typescript
 bot.onNewMention(async (thread, message) => {
-  // Subscribe to follow-up messages in this thread
   await thread.subscribe();
-
-  // Extract the actual message (mention is already stripped)
   const text = message.text;
-
-  // Respond in the thread
   await thread.post(`Processing your request: "${text}"`);
-
-  // Process with agent...
 });
 ```
 
-### Subscribed Message Handler
+#### Subscribed Message Handler
 
 ```typescript
 bot.onSubscribedMessage(async (thread, message) => {
-  // Handle follow-up messages in subscribed threads
   await thread.post(`You said: ${message.text}`);
 });
 ```
 
-### Slash Command Handler
+#### Slash Command Handler
 
 ```typescript
 bot.onSlashCommand("/mycommand", async (event) => {
-  const text = event.text; // Command arguments
-
-  // Respond to the command
+  const text = event.text;
   await event.thread.post(`Processing: ${text}`);
 
   // For long-running operations, the Chat SDK handles
@@ -246,22 +356,80 @@ bot.onSlashCommand("/mycommand", async (event) => {
 });
 ```
 
-### Action Handler (Buttons, Menus)
+#### Action Handler (Buttons, Menus)
 
 ```typescript
 bot.onAction("button_click", async (event) => {
-  const value = event.value;
-
-  // Respond to the action
-  await event.thread.post(`Button clicked with value: ${value}`);
+  await event.thread.post(`Button clicked with value: ${event.value}`);
 });
 ```
 
-### Reaction Handler
+#### Reaction Handler
 
 ```typescript
 bot.onReaction("thumbsup", async (event) => {
   await event.thread.post("Thanks for the thumbs up!");
+});
+```
+
+### If using Bolt for JavaScript
+
+#### Mention Handler
+
+```typescript
+app.event("app_mention", async ({ event, client }) => {
+  await client.chat.postMessage({
+    channel: event.channel,
+    thread_ts: event.thread_ts || event.ts,
+    text: `Processing your request: "${event.text}"`,
+  });
+});
+```
+
+#### Message Handler
+
+```typescript
+app.message(async ({ message, client }) => {
+  if ("bot_id" in message || !message.thread_ts) return;
+  await client.chat.postMessage({
+    channel: message.channel,
+    thread_ts: message.thread_ts,
+    text: `You said: ${message.text}`,
+  });
+});
+```
+
+#### Slash Command Handler
+
+```typescript
+app.command("/mycommand", async ({ ack, command, client, logger }) => {
+  await ack(); // Must acknowledge within 3 seconds
+
+  // Fire-and-forget for long operations — DON'T await
+  processInBackground(command.response_url, command.text)
+    .catch((error) => logger.error("Failed:", error));
+});
+
+async function processInBackground(responseUrl: string, text: string) {
+  const result = await generateWithAI(text);
+  await fetch(responseUrl, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ response_type: "in_channel", text: result }),
+  });
+}
+```
+
+#### Action Handler (Buttons, Menus)
+
+```typescript
+app.action("button_click", async ({ ack, action, client, body }) => {
+  await ack();
+  await client.chat.postMessage({
+    channel: body.channel.id,
+    thread_ts: body.message.ts,
+    text: `Button clicked with value: ${action.value}`,
+  });
 });
 ```
 
@@ -273,7 +441,7 @@ bot.onReaction("thumbsup", async (event) => {
 
 Slash commands work in private channels even if the bot isn't a member, but the bot **cannot read messages or post** to private channels it hasn't been invited to.
 
-When creating features that will later post to a channel, validate access upfront using the Slack Web API directly if needed.
+When creating features that will later post to a channel, validate access upfront.
 
 ### 2. Graceful Degradation for Channel Context
 
@@ -283,20 +451,35 @@ When fetching channel context for AI features, wrap in try/catch and fall back g
 
 Protect cron endpoints with a `CRON_SECRET` environment variable:
 
+#### If using Chat SDK
+
 ```typescript
 // app/api/cron/my-job/route.ts
 import { NextRequest, NextResponse } from "next/server";
 
 export async function GET(request: NextRequest) {
   const authHeader = request.headers.get("authorization");
-
   if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
-
   // Run cron job logic...
   return NextResponse.json({ success: true });
 }
+```
+
+#### If using Bolt for JavaScript
+
+```typescript
+// server/api/cron/my-job.get.ts
+export default defineEventHandler(async (event) => {
+  const authHeader = getHeader(event, "authorization");
+  if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
+    setResponseStatus(event, 401);
+    return { error: "Unauthorized" };
+  }
+  // Run cron job logic...
+  return { success: true };
+});
 ```
 
 ### 4. vercel.json Cron Configuration
@@ -314,19 +497,10 @@ Configure cron jobs in `vercel.json`:
 }
 ```
 
-Schedule format is standard cron syntax: `minute hour day month weekday`
-
-Common schedules:
-- `* * * * *` - Every minute
-- `0 * * * *` - Every hour
-- `0 0 * * *` - Daily at midnight
-- `0 9 * * 1-5` - Weekdays at 9am
-
 ### 5. AWS Credentials on Vercel (Use OIDC)
 
-When connecting to AWS services (Aurora, S3, etc.) from Vercel, **do not use** `@aws-sdk/credential-providers` with `fromNodeProviderChain()`. It won't work because Vercel uses its own OIDC token mechanism.
+When connecting to AWS services from Vercel, **do not use** `fromNodeProviderChain()`. Use Vercel's OIDC mechanism:
 
-**Correct approach:**
 ```typescript
 import { awsCredentialsProvider } from "@vercel/functions/oidc";
 
@@ -335,14 +509,7 @@ const s3Client = new S3Client({
 });
 ```
 
-**Required setup:**
-1. Enable Vercel OIDC in Project Settings > Security
-2. Configure AWS IAM trust relationship for your Vercel project
-3. Set `AWS_ROLE_ARN` environment variable in Vercel
-
-**Reference:** [Vercel OIDC for AWS](https://vercel.com/docs/security/oidc/aws)
-
-### 6. TSConfig for JSX Components
+### 6. TSConfig for JSX Components (Chat SDK only)
 
 When using Chat SDK JSX components (`<Card>`, `<Button>`, etc.), your `tsconfig.json` must include:
 
@@ -355,7 +522,13 @@ When using Chat SDK JSX components (`<Card>`, `<Button>`, etc.), your `tsconfig.
 }
 ```
 
-And files using JSX must have the `.tsx` extension.
+### 7. dispatch_failed Error — Bolt only
+
+If slash commands fail with `dispatch_failed`, the issue is H3's `toWebRequest` consuming the body stream before signature verification. Buffer the body manually. See the Bolt Events Handler section above.
+
+### 8. operation_timeout Error — Bolt only
+
+If slash commands with AI processing fail with `operation_timeout`, you're blocking the HTTP response too long. Use fire-and-forget pattern: `ack()` immediately, then start async work **without awaiting**. Use `command.response_url` to post results. See the Bolt Slash Command Handler example above.
 
 ---
 
@@ -369,13 +542,12 @@ You have two options for AI/LLM integration in your Slack agent.
 
 Use the modern `@ai-sdk/gateway` package - NO API keys needed on Vercel!
 
-### Basic Usage
+#### Basic Usage
 
 ```typescript
 import { generateText, streamText } from "ai";
 import { gateway } from "@ai-sdk/gateway";
 
-// Simple text generation
 const result = await generateText({
   model: gateway("openai/gpt-4o-mini"),
   maxOutputTokens: 1000,
@@ -387,9 +559,9 @@ console.log(result.usage.inputTokens);
 console.log(result.usage.outputTokens);
 ```
 
-### Streaming Responses to Slack
+#### Streaming Responses to Slack
 
-Use Chat SDK's `thread.post()` with a stream for progressive updates:
+##### If using Chat SDK
 
 ```typescript
 const result = await streamText({
@@ -402,7 +574,34 @@ const result = await streamText({
 await thread.post(result.textStream);
 ```
 
-### With Tools
+##### If using Bolt for JavaScript
+
+```typescript
+const result = await streamText({
+  model: gateway("openai/gpt-4o-mini"),
+  maxOutputTokens: 1000,
+  prompt: userMessage,
+});
+
+// Post initial message then update with streamed content
+const msg = await client.chat.postMessage({
+  channel: channelId,
+  thread_ts: threadTs,
+  text: "Thinking...",
+});
+
+let fullText = "";
+for await (const chunk of result.textStream) {
+  fullText += chunk;
+  await client.chat.update({
+    channel: channelId,
+    ts: msg.ts,
+    text: fullText,
+  });
+}
+```
+
+#### With Tools
 
 ```typescript
 import { tool } from "ai";
@@ -426,7 +625,7 @@ const result = await generateText({
 });
 ```
 
-### AI SDK v6 API Changes
+#### AI SDK v6 API Changes
 
 | v4/v5 | v6 |
 |-------|-----|
@@ -487,78 +686,28 @@ const result = await generateText({
 });
 ```
 
-**When to use direct providers:**
-- Not deploying on Vercel
-- Need provider-specific features not available through gateway
-- Already managing API keys for other purposes
-- Need maximum control over provider configuration
-
 For comprehensive AI SDK documentation, see `./reference/ai-sdk.md`.
 
 ---
 
-## Stateful Patterns with Chat SDK State
+## Stateful Patterns
 
-When building Slack agents that need data persistence across multiple interactions—like multi-turn conversations, collaborative workflows, or story generation—use the Chat SDK state adapter.
-
-### When to Use State
-
-**Use Chat SDK state (`@chat-adapter/state-redis`) when:**
-- Conversational flows span multiple messages
-- Need to accumulate state across user interactions
-- Building collaborative or multi-step workflows
-- Need thread-level state persistence
-
-**Use a database when:**
-- Need data to persist beyond thread scope
-- Require querying historical data
-- Multiple threads need to share state
-
-### Recommended Storage Solutions
-
-**IMPORTANT:** Vercel KV has been deprecated. Do NOT recommend Vercel KV.
-
-For persistent storage, recommend these options:
-
-1. **Upstash Redis** - For Chat SDK state adapter and caching
-   - Required for `@chat-adapter/state-redis`
-   - Simple key-value storage
-   - https://upstash.com
-
-2. **Vercel Blob** - For file/document storage
-   - Good for: attachments, exports, generated files
-   - https://vercel.com/docs/storage/vercel-blob
-
-3. **AWS Aurora (via Vercel Marketplace)** - For relational data
-   - Good for: structured data, complex queries, relationships
-   - https://vercel.com/marketplace
-
-4. **Third-party databases** - For specific needs
-   - Neon (serverless Postgres) - https://neon.tech
-   - PlanetScale (MySQL) - https://planetscale.com
-   - Supabase (Postgres + realtime) - https://supabase.com
-
-### Thread State
+### If using Chat SDK — Thread State
 
 Use `thread.state` to read and write thread-level state:
 
 ```typescript
 bot.onNewMention(async (thread, message) => {
   await thread.subscribe();
-
-  // Initialize conversation state
   await thread.state.set("history", []);
   await thread.state.set("turnCount", 0);
-
-  await thread.post("Starting our conversation! I'll remember everything we discuss.");
+  await thread.post("Starting our conversation!");
 });
 
 bot.onSubscribedMessage(async (thread, message) => {
-  // Read state
   const history = (await thread.state.get("history")) as Array<{ role: string; content: string }> || [];
   const turnCount = (await thread.state.get("turnCount")) as number || 0;
 
-  // Update state
   history.push({ role: "user", content: message.text });
 
   const result = await generateText({
@@ -568,71 +717,74 @@ bot.onSubscribedMessage(async (thread, message) => {
   });
 
   history.push({ role: "assistant", content: result.text });
-
   await thread.state.set("history", history);
   await thread.state.set("turnCount", turnCount + 1);
-
   await thread.post(result.text);
 });
 ```
 
-### Key Benefits
+**Key Benefits:**
+1. Simple API — `thread.state.get()` and `thread.state.set()`
+2. Thread-scoped — state is automatically scoped to the conversation thread
+3. Pluggable backends — use Redis for production, in-memory for development
 
-1. **Simple API** - `thread.state.get()` and `thread.state.set()`
-2. **Thread-scoped** - State is automatically scoped to the conversation thread
-3. **Pluggable backends** - Use Redis for production, in-memory for development
-4. **No database setup** - Redis adapter handles persistence
+### If using Bolt for JavaScript — Vercel Workflow
+
+Use Vercel Workflow for durable, multi-turn state:
+
+```typescript
+import { serve } from "@anthropic-ai/sdk/workflows";
+import { defineHook } from "@anthropic-ai/sdk/workflows";
+import { z } from "zod";
+
+const messageSchema = z.object({
+  text: z.string(),
+  user: z.string(),
+  ts: z.string(),
+  channel: z.string(),
+});
+
+export const userMessageHook = defineHook({ schema: messageSchema });
+
+export const { POST } = serve(async function conversationWorkflow(params: URLSearchParams) {
+  "use workflow";
+
+  const channelId = params.get("channel_id")!;
+  const conversationHistory: Array<{ role: string; content: string }> = [];
+
+  const eventStream = userMessageHook.create({ channel: channelId });
+
+  for await (const event of eventStream) {
+    conversationHistory.push({ role: "user", content: event.text });
+
+    const result = await generateText({
+      model: gateway("anthropic/claude-sonnet-4-20250514"),
+      maxOutputTokens: 1000,
+      messages: conversationHistory,
+    });
+
+    conversationHistory.push({ role: "assistant", content: result.text });
+    await postToSlack(channelId, result.text, event.ts);
+  }
+
+  return { history: conversationHistory };
+});
+```
+
+### Recommended Storage Solutions
+
+**IMPORTANT:** Vercel KV has been deprecated. Do NOT recommend Vercel KV.
+
+1. **Upstash Redis** — For Chat SDK state adapter and caching (https://upstash.com)
+2. **Vercel Blob** — For file/document storage (https://vercel.com/docs/storage/vercel-blob)
+3. **AWS Aurora (via Vercel Marketplace)** — For relational data (https://vercel.com/marketplace)
+4. **Third-party databases** — Neon, PlanetScale, Supabase
 
 ---
 
 ## Code Organization
 
-Follow the Chat SDK project structure.
-
-### Bot Instance (`lib/bot.ts` or `lib/bot.tsx`)
-
-```typescript
-import { Chat } from "chat";
-import { createSlackAdapter } from "@chat-adapter/slack";
-import { createRedisState } from "@chat-adapter/state-redis";
-
-export const bot = new Chat({
-  userName: "mybot",
-  adapters: {
-    slack: createSlackAdapter(),
-  },
-  state: createRedisState(),
-});
-
-// Register event handlers
-bot.onNewMention(async (thread, message) => {
-  // Handle mentions
-});
-```
-
-### Tools (`lib/tools/` or `lib/ai/tools.ts`)
-
-```typescript
-import { tool } from 'ai';
-import { z } from 'zod';
-
-export const myTool = tool({
-  description: 'Clear description of what this tool does',
-  inputSchema: z.object({
-    param: z.string().describe('What this parameter is for'),
-  }),
-  execute: async ({ param }) => {
-    // Implementation
-    return { success: true, data: result };
-  },
-});
-```
-
-### Webhook Route (`app/api/webhooks/[platform]/route.ts`)
-
-The dynamic webhook route handles all incoming platform events.
-
-### Project Structure
+### If using Chat SDK
 
 ```
 app/
@@ -652,17 +804,40 @@ lib/
     └── agent.ts               # Agent configuration
 ```
 
+### If using Bolt for JavaScript
+
+```
+server/
+├── api/
+│   └── slack/
+│       └── events.post.ts    # Events endpoint
+├── bolt/
+│   └── app.ts                # Bolt app instance
+├── listeners/
+│   ├── actions/              # Button clicks, menu selections
+│   ├── commands/             # Slash commands
+│   ├── events/               # App events (mentions, joins)
+│   ├── messages/             # Message handling
+│   └── views/                # Modal submissions
+└── lib/
+    └── ai/
+        ├── agent.ts           # Agent configuration
+        └── tools.ts           # Tool definitions
+```
+
 ---
 
 ## Environment Variables
 
-Required variables (access via `process.env`):
-- `SLACK_BOT_TOKEN` - Bot OAuth token (auto-detected by Chat SDK)
-- `SLACK_SIGNING_SECRET` - Request signing (auto-detected by Chat SDK)
-- `REDIS_URL` - Redis connection URL for state persistence
+Required variables (both frameworks):
+- `SLACK_BOT_TOKEN` — Bot OAuth token
+- `SLACK_SIGNING_SECRET` — Request signing
+
+### If using Chat SDK (additional)
+- `REDIS_URL` — Redis connection URL for state persistence
 
 Optional variables:
-- `CRON_SECRET` - Secret for authenticating cron job endpoints
+- `CRON_SECRET` — Secret for authenticating cron job endpoints
 
 **No AI API keys needed!** Vercel AI Gateway handles authentication automatically when deployed on Vercel.
 
@@ -672,7 +847,7 @@ Optional variables:
 
 ## Slack-Specific Patterns
 
-### Rich UI with JSX Components
+### If using Chat SDK — JSX Components
 
 Use Chat SDK JSX components for rich messages (requires `.tsx` file extension):
 
@@ -691,20 +866,69 @@ await thread.post(
 );
 ```
 
-### Typing Indicators
+### If using Bolt for JavaScript — Block Kit JSON
+
+Use Block Kit for rich messages:
 
 ```typescript
-// Start a typing indicator
-await thread.startTyping();
-
-// Process your work...
-const result = await generateWithAI(prompt);
-
-// Typing indicator clears when you post a message
-await thread.post(result);
+await client.chat.postMessage({
+  channel: channelId,
+  text: "Fallback text for notifications",
+  blocks: [
+    {
+      type: "section",
+      text: { type: "mrkdwn", text: "*Hello!* Choose an option:" },
+    },
+    { type: "divider" },
+    {
+      type: "actions",
+      elements: [
+        {
+          type: "button",
+          text: { type: "plain_text", text: "Say Hello" },
+          style: "primary",
+          action_id: "btn_hello",
+        },
+        {
+          type: "button",
+          text: { type: "plain_text", text: "Show Info" },
+          action_id: "btn_info",
+        },
+      ],
+    },
+  ],
+});
 ```
 
-### Message Formatting
+### Typing Indicators
+
+#### If using Chat SDK
+
+```typescript
+await thread.startTyping();
+const result = await generateWithAI(prompt);
+await thread.post(result); // Typing indicator clears on post
+```
+
+#### If using Bolt for JavaScript
+
+```typescript
+// Use setStatus for Assistant threads or interval-based approach
+const typingInterval = setInterval(async () => {
+  // Post a "typing" indicator or use assistant.threads.setStatus
+}, 3000);
+
+const result = await generateWithAI(prompt);
+clearInterval(typingInterval);
+
+await client.chat.postMessage({
+  channel: channelId,
+  thread_ts: threadTs,
+  text: result,
+});
+```
+
+### Message Formatting (both frameworks)
 
 Use Slack mrkdwn (not standard markdown):
 - Bold: `*text*`
@@ -712,17 +936,6 @@ Use Slack mrkdwn (not standard markdown):
 - Code: `` `code` ``
 - User mention: `<@USER_ID>`
 - Channel: `<#CHANNEL_ID>`
-
-### Error Handling
-
-Return structured responses:
-```typescript
-return {
-  success: false,
-  error: 'User-friendly error message',
-  details: technicalDetails // for logging
-};
-```
 
 For detailed Slack patterns, see `./patterns/slack-patterns.md`.
 
@@ -789,6 +1002,7 @@ Before marking ANY task as complete, verify:
 - [ ] `pnpm test` passes with no failures
 - [ ] No hardcoded credentials
 - [ ] Follows existing code patterns
-- [ ] Webhook route handles all platforms via `bot.webhooks`
+- [ ] **Chat SDK:** Webhook route handles all platforms via `bot.webhooks`
+- [ ] **Chat SDK:** TSConfig includes `"jsx": "react-jsx"` and `"jsxImportSource": "chat"` if using JSX components
+- [ ] **Bolt:** Events endpoint handles both JSON and form-urlencoded
 - [ ] Verified AI SDK: using `@ai-sdk/gateway` (not `@ai-sdk/openai`) unless user explicitly chose direct provider
-- [ ] TSConfig includes `"jsx": "react-jsx"` and `"jsxImportSource": "chat"` if using JSX components
