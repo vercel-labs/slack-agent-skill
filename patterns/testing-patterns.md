@@ -1,8 +1,10 @@
 # Testing Patterns for Slack Agents
 
-This document provides detailed testing patterns for Slack agent projects built with the Chat SDK.
+This document provides detailed testing patterns for Slack agent projects built with either the Chat SDK or Bolt for JavaScript.
 
 ## Test File Organization
+
+### If using Chat SDK
 
 ```
 lib/
@@ -25,6 +27,38 @@ app/
 │       └── [platform]/
 │           └── route.ts
 ```
+
+Template files: `./templates/chat-sdk/`
+
+### If using Bolt for JavaScript
+
+```
+server/
+├── __tests__/
+│   ├── setup.ts              # Global test setup and mocks
+│   └── helpers/
+│       ├── mock-client.ts    # Slack WebClient mocks
+│       └── mock-context.ts   # Bolt context mocks
+├── bolt/
+│   └── app.ts
+├── listeners/
+│   ├── events/
+│   │   ├── app-mention.ts
+│   │   └── app-mention.test.ts
+│   └── commands/
+│       ├── sample-command.ts
+│       └── sample-command.test.ts
+└── lib/
+    └── ai/
+        ├── agent.ts
+        ├── agent.test.ts
+        └── tools.ts
+        └── tools.test.ts
+```
+
+Template files: `./templates/bolt/`
+
+---
 
 ## Unit Testing Tools
 
@@ -72,7 +106,11 @@ describe('getChannelMessages', () => {
 });
 ```
 
-### Testing Bot Handlers
+---
+
+## Testing Bot / Event Handlers
+
+### If using Chat SDK
 
 ```typescript
 import { describe, it, expect, vi } from 'vitest';
@@ -83,7 +121,6 @@ describe('bot.onNewMention', () => {
     const thread = createMockThread();
     const message = createMockMessage({ text: 'hello' });
 
-    // Import and call your handler
     await handleMention(thread, message);
 
     expect(thread.subscribe).toHaveBeenCalled();
@@ -101,9 +138,38 @@ describe('bot.onNewMention', () => {
 });
 ```
 
-## Testing Event Handlers
+### If using Bolt for JavaScript
 
-### Testing a Slash Command Handler
+```typescript
+import { describe, it, expect, vi } from 'vitest';
+import { createMockSlackClient, createMockEvent } from './helpers/mock-client';
+
+describe('app_mention handler', () => {
+  it('should respond to mention in thread', async () => {
+    const client = createMockSlackClient();
+    const event = createMockEvent('app_mention', {
+      text: '<@U12345678> hello',
+      channel: 'C12345678',
+      ts: '123.456',
+    });
+
+    await handleAppMention({ event, client, say: vi.fn() });
+
+    expect(client.chat.postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        channel: 'C12345678',
+        thread_ts: '123.456',
+      })
+    );
+  });
+});
+```
+
+---
+
+## Testing Slash Commands
+
+### If using Chat SDK
 
 ```typescript
 import { describe, it, expect, vi } from 'vitest';
@@ -124,10 +190,7 @@ describe('/sample-command', () => {
   });
 
   it('should handle errors gracefully', async () => {
-    const event = createMockSlashCommandEvent({
-      text: '',
-      userId: 'U12345678',
-    });
+    const event = createMockSlashCommandEvent({ text: '' });
 
     await handleSampleCommand(event);
 
@@ -138,7 +201,37 @@ describe('/sample-command', () => {
 });
 ```
 
-### Testing an Action Handler
+### If using Bolt for JavaScript
+
+```typescript
+import { describe, it, expect, vi } from 'vitest';
+
+describe('/sample-command', () => {
+  it('should ack and respond', async () => {
+    const ack = vi.fn();
+    const respond = vi.fn();
+    const command = {
+      text: 'test input',
+      user_id: 'U12345678',
+      channel_id: 'C12345678',
+      response_url: 'https://hooks.slack.com/commands/...',
+    };
+
+    await handleSampleCommand({ ack, command, respond });
+
+    expect(ack).toHaveBeenCalled();
+    expect(respond).toHaveBeenCalledWith(
+      expect.objectContaining({ text: expect.stringContaining('Result') })
+    );
+  });
+});
+```
+
+---
+
+## Testing Action Handlers
+
+### If using Chat SDK
 
 ```typescript
 import { describe, it, expect, vi } from 'vitest';
@@ -158,19 +251,40 @@ describe('button_click action', () => {
 });
 ```
 
-## E2E Testing Patterns
-
-### Testing Full Message Flow
+### If using Bolt for JavaScript
 
 ```typescript
-import { describe, it, expect, vi, beforeAll, afterAll } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 
+describe('button_click action', () => {
+  it('should ack and handle click', async () => {
+    const ack = vi.fn();
+    const client = createMockSlackClient();
+    const body = {
+      actions: [{ value: 'clicked_value' }],
+      channel: { id: 'C12345678' },
+      message: { ts: '123.456' },
+    };
+
+    await handleButtonClick({ ack, body, client });
+
+    expect(ack).toHaveBeenCalled();
+    expect(client.chat.update).toHaveBeenCalled();
+  });
+});
+```
+
+---
+
+## E2E Testing Patterns
+
+### Full Message Flow (Chat SDK)
+
+```typescript
 describe('E2E: Message Flow', () => {
   it('should handle complete mention flow', async () => {
     const thread = createMockThread();
-    const message = createMockMessage({
-      text: 'what channels am I in?',
-    });
+    const message = createMockMessage({ text: 'what channels am I in?' });
 
     await handleMention(thread, message);
 
@@ -181,11 +295,9 @@ describe('E2E: Message Flow', () => {
   it('should handle conversation in thread', async () => {
     const thread = createMockThread({ threadTs: '100.001' });
 
-    // First message (mention)
     const mention = createMockMessage({ text: 'start a task' });
     await handleMention(thread, mention);
 
-    // Follow-up (subscribed message)
     const followUp = createMockMessage({ text: 'continue please' });
     await handleSubscribedMessage(thread, followUp);
 
@@ -194,9 +306,32 @@ describe('E2E: Message Flow', () => {
 });
 ```
 
+### Full Message Flow (Bolt)
+
+```typescript
+describe('E2E: Message Flow', () => {
+  it('should handle mention and reply in thread', async () => {
+    const client = createMockSlackClient();
+    const event = createMockEvent('app_mention', {
+      text: '<@UBOT> what channels am I in?',
+      channel: 'C12345678',
+      ts: '100.001',
+    });
+
+    await handleAppMention({ event, client, say: vi.fn() });
+
+    expect(client.chat.postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ thread_ts: '100.001' })
+    );
+  });
+});
+```
+
+---
+
 ## Mock Helpers
 
-### Creating a Mock Thread
+### Chat SDK Mock Factories
 
 ```typescript
 // lib/__tests__/helpers/mock-thread.ts
@@ -248,13 +383,45 @@ export function createMockActionEvent(overrides = {}) {
 }
 ```
 
-### Creating a Mock Context
+### Bolt Mock Factories
 
 ```typescript
-// lib/__tests__/helpers/mock-context.ts
+// server/__tests__/helpers/mock-client.ts
+import { vi } from 'vitest';
+
+export function createMockSlackClient() {
+  return {
+    conversations: {
+      history: vi.fn().mockResolvedValue({ ok: true, messages: [], has_more: false }),
+      replies: vi.fn().mockResolvedValue({ ok: true, messages: [], has_more: false }),
+      join: vi.fn().mockResolvedValue({ ok: true, channel: { id: 'C12345678' } }),
+      list: vi.fn().mockResolvedValue({ ok: true, channels: [] }),
+      info: vi.fn().mockResolvedValue({ ok: true, channel: { id: 'C12345678', name: 'general' } }),
+    },
+    chat: {
+      postMessage: vi.fn().mockResolvedValue({ ok: true, ts: '1234567890.123456', channel: 'C12345678' }),
+      update: vi.fn().mockResolvedValue({ ok: true, ts: '1234567890.123456' }),
+      delete: vi.fn().mockResolvedValue({ ok: true }),
+    },
+    users: {
+      info: vi.fn().mockResolvedValue({ ok: true, user: { id: 'U12345678', name: 'testuser' } }),
+    },
+    reactions: {
+      add: vi.fn().mockResolvedValue({ ok: true }),
+      remove: vi.fn().mockResolvedValue({ ok: true }),
+    },
+    views: {
+      open: vi.fn().mockResolvedValue({ ok: true }),
+      update: vi.fn().mockResolvedValue({ ok: true }),
+      push: vi.fn().mockResolvedValue({ ok: true }),
+    },
+  };
+}
+
 export function createMockContext(overrides = {}) {
   return {
     channel_id: 'C12345678',
+    dm_channel: 'D12345678',
     thread_ts: undefined,
     is_dm: false,
     team_id: 'T12345678',
@@ -263,23 +430,23 @@ export function createMockContext(overrides = {}) {
   };
 }
 
-export function createMockThreadContext(threadTs: string) {
-  return createMockContext({
-    thread_ts: threadTs,
-  });
-}
-
-export function createMockDMContext() {
-  return createMockContext({
-    is_dm: true,
-    channel_id: 'D12345678',
-  });
+export function createMockEvent(type: string, overrides = {}) {
+  return {
+    type,
+    user: 'U12345678',
+    channel: 'C12345678',
+    ts: '1234567890.123456',
+    event_ts: '1234567890.123456',
+    ...overrides,
+  };
 }
 ```
 
+---
+
 ## Test Coverage Guidelines
 
-Aim for these coverage targets:
+Aim for these coverage targets (both frameworks):
 
 | Category | Target |
 |----------|--------|
