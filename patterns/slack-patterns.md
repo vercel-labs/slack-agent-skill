@@ -1,10 +1,59 @@
 # Slack Development Patterns
 
-This document covers Slack-specific patterns and best practices for building agents.
+This document covers Slack-specific patterns and best practices for building agents with either the Chat SDK or Bolt for JavaScript.
 
-## Block Kit UI
+## Rich UI
 
-### Basic Message with Blocks
+### If using Chat SDK — JSX Components
+
+Chat SDK uses JSX components instead of raw Block Kit JSON. Files using JSX must have the `.tsx` extension.
+
+```tsx
+import { Card, CardText as Text, Actions, Button, Divider } from "chat";
+
+await thread.post(
+  <Card title="Hello!">
+    <Text>*Hello!* This is a formatted message.</Text>
+    <Divider />
+    <Text>Choose an option:</Text>
+    <Actions>
+      <Button id="button_click" value="button_value" style="primary">Click Me</Button>
+    </Actions>
+  </Card>
+);
+```
+
+#### Interactive Actions (Chat SDK)
+
+```tsx
+import { Card, CardText as Text, Actions, Button, Select, Option } from "chat";
+
+// Button with danger style
+await thread.post(
+  <Card>
+    <Text>Are you sure you want to delete this?</Text>
+    <Actions>
+      <Button id="delete_item" value={itemId} style="danger">Delete</Button>
+      <Button id="cancel">Cancel</Button>
+    </Actions>
+  </Card>
+);
+
+// Select menu
+await thread.post(
+  <Card>
+    <Text>Select an option:</Text>
+    <Actions>
+      <Select id="select_option" placeholder="Choose...">
+        <Option value="opt1">Option 1</Option>
+        <Option value="opt2">Option 2</Option>
+      </Select>
+    </Actions>
+  </Card>
+);
+```
+
+### If using Bolt for JavaScript — Block Kit JSON
 
 ```typescript
 import { WebClient } from '@slack/web-api';
@@ -17,26 +66,15 @@ await client.chat.postMessage({
   blocks: [
     {
       type: 'section',
-      text: {
-        type: 'mrkdwn',
-        text: '*Hello!* This is a formatted message.',
-      },
+      text: { type: 'mrkdwn', text: '*Hello!* This is a formatted message.' },
     },
-    {
-      type: 'divider',
-    },
+    { type: 'divider' },
     {
       type: 'section',
-      text: {
-        type: 'mrkdwn',
-        text: 'Choose an option:',
-      },
+      text: { type: 'mrkdwn', text: 'Choose an option:' },
       accessory: {
         type: 'button',
-        text: {
-          type: 'plain_text',
-          text: 'Click Me',
-        },
+        text: { type: 'plain_text', text: 'Click Me' },
         action_id: 'button_click',
         value: 'button_value',
       },
@@ -45,7 +83,7 @@ await client.chat.postMessage({
 });
 ```
 
-### Interactive Actions
+#### Interactive Actions (Bolt)
 
 ```typescript
 // Button with confirmation
@@ -75,14 +113,11 @@ await client.chat.postMessage({
 }
 ```
 
-### Context and Header Blocks
+#### Context and Header Blocks (Bolt)
 
 ```typescript
 // Header
-{
-  type: 'header',
-  text: { type: 'plain_text', text: 'Task Summary' },
-}
+{ type: 'header', text: { type: 'plain_text', text: 'Task Summary' } }
 
 // Context (small text, often for metadata)
 {
@@ -95,9 +130,11 @@ await client.chat.postMessage({
 }
 ```
 
+---
+
 ## Message Formatting (mrkdwn)
 
-Slack uses its own markdown variant called mrkdwn.
+Slack uses its own markdown variant called mrkdwn. This applies to both frameworks.
 
 ### Text Formatting
 ```
@@ -126,15 +163,33 @@ Slack doesn't support markdown lists, use:
 1. Numbered manually
 ```
 
-## Events Endpoint
+---
 
-Use `@vercel/slack-bolt` for all Slack event handling. This package automatically handles:
+## Webhook / Events Endpoint
+
+### If using Chat SDK
+
+```typescript
+// app/api/webhooks/[platform]/route.ts
+import { after } from "next/server";
+import { bot } from "@/lib/bot";
+
+export async function POST(request: Request, context: { params: Promise<{ platform: string }> }) {
+  const { platform } = await context.params;
+  const handler = bot.webhooks[platform as keyof typeof bot.webhooks];
+  if (!handler) return new Response("Unknown platform", { status: 404 });
+  return handler(request, { waitUntil: (task) => after(() => task) });
+}
+```
+
+The Chat SDK automatically handles:
 - Content-type detection (JSON vs form-urlencoded)
 - URL verification challenges
-- 3-second ack timeout (built-in `ackTimeoutMs: 3001`)
-- Background processing via Vercel Fluid Compute's `waitUntil`
+- Slack's 3-second ack timeout
+- Background processing via `waitUntil`
+- Signature verification using `SLACK_SIGNING_SECRET`
 
-### Bolt App Setup
+### If using Bolt for JavaScript
 
 ```typescript
 // server/bolt/app.ts
@@ -152,8 +207,6 @@ const app = new App({
 export { app, receiver };
 ```
 
-### Events Handler
-
 ```typescript
 // server/api/slack/events.post.ts
 import { createHandler } from "@vercel/slack-bolt";
@@ -163,238 +216,261 @@ import { app, receiver } from "../../bolt/app";
 const handler = createHandler(app, receiver);
 
 export default defineEventHandler(async (event) => {
-  // Read and cache the raw body first to avoid stream consumption issues
-  // with toWebRequest on serverless platforms (h3 issues #570, #578, #615)
   const rawBody = await readRawBody(event, "utf8");
-
-  // Create a new Request with the buffered body
   const request = new Request(getRequestURL(event), {
     method: event.method,
     headers: event.headers,
     body: rawBody,
   });
-
   return await handler(request);
 });
 ```
 
-**Why this pattern?** H3's `toWebRequest()` has known issues where it eagerly consumes the request body stream, causing `dispatch_failed` errors on serverless platforms.
+**Why buffer the body?** H3's `toWebRequest()` eagerly consumes the request body stream, causing `dispatch_failed` errors on serverless platforms.
 
-### Content Type Reference
-
-`@vercel/slack-bolt` automatically handles all content types:
+### Content Type Reference (both frameworks)
 
 | Event Type | Content-Type | Handled Automatically |
 |------------|--------------|----------------------|
-| Slash commands | `application/x-www-form-urlencoded` | ✅ |
-| Events API | `application/json` | ✅ |
-| Interactivity | `application/json` | ✅ |
-| URL verification | `application/json` | ✅ |
+| Slash commands | `application/x-www-form-urlencoded` | Yes |
+| Events API | `application/json` | Yes |
+| Interactivity | `application/json` | Yes |
+| URL verification | `application/json` | Yes |
+
+---
 
 ## Event Handling Patterns
 
-### App Mention Handler
+### Mention Handler
+
+#### If using Chat SDK
 
 ```typescript
-// server/listeners/events/app-mention.ts
-import type { App } from '@slack/bolt';
-
-export function registerAppMention(app: App) {
-  app.event('app_mention', async ({ event, client, say }) => {
-    try {
-      // Extract the actual message (remove bot mention)
-      const text = event.text.replace(/<@[A-Z0-9]+>/g, '').trim();
-
-      // Respond in thread if it's a thread, otherwise start new thread
-      const thread_ts = event.thread_ts || event.ts;
-
-      await say({
-        text: `Processing your request: "${text}"`,
-        thread_ts,
-      });
-
-      // Process with agent...
-    } catch (error) {
-      console.error('Error handling mention:', error);
-      await say({
-        text: 'Sorry, I encountered an error processing your request.',
-        thread_ts: event.thread_ts || event.ts,
-      });
-    }
-  });
-}
+bot.onNewMention(async (thread, message) => {
+  try {
+    const text = message.text; // Mention prefix already stripped
+    await thread.subscribe();
+    await thread.post(`Processing your request: "${text}"`);
+    // Process with agent...
+  } catch (error) {
+    console.error("Error handling mention:", error);
+    await thread.post("Sorry, I encountered an error processing your request.");
+  }
+});
 ```
 
-### Message Handler with Filtering
+#### If using Bolt for JavaScript
 
 ```typescript
-// Only respond to messages that aren't from bots
+app.event('app_mention', async ({ event, client, say }) => {
+  try {
+    const text = event.text.replace(/<@[A-Z0-9]+>/g, '').trim();
+    const thread_ts = event.thread_ts || event.ts;
+
+    await say({
+      text: `Processing your request: "${text}"`,
+      thread_ts,
+    });
+    // Process with agent...
+  } catch (error) {
+    console.error('Error handling mention:', error);
+    await say({
+      text: 'Sorry, I encountered an error processing your request.',
+      thread_ts: event.thread_ts || event.ts,
+    });
+  }
+});
+```
+
+### Subscribed / Follow-up Message Handler
+
+#### If using Chat SDK
+
+```typescript
+bot.onSubscribedMessage(async (thread, message) => {
+  await thread.post(`You said: ${message.text}`);
+});
+```
+
+#### If using Bolt for JavaScript
+
+```typescript
 app.message(async ({ message, say }) => {
-  // Skip bot messages
   if ('bot_id' in message) return;
-
-  // Skip message edits
   if ('subtype' in message && message.subtype === 'message_changed') return;
-
-  // Only respond in DMs or when in a thread
   if (message.channel_type !== 'im' && !message.thread_ts) return;
 
-  // Handle the message...
+  await say({
+    text: `You said: ${message.text}`,
+    thread_ts: message.thread_ts,
+  });
 });
 ```
 
 ### Slash Command Handler
 
+#### If using Chat SDK
+
 ```typescript
-// server/listeners/commands/sample-command.ts
-import type { App } from '@slack/bolt';
-
-export function registerSampleCommand(app: App) {
-  app.command('/sample-command', async ({ command, ack, respond }) => {
-    // Always acknowledge within 3 seconds
-    await ack();
-
-    try {
-      const { text, user_id, channel_id } = command;
-
-      // Process command...
-      const result = await processCommand(text);
-
-      // Respond (ephemeral by default)
-      await respond({
-        response_type: 'ephemeral', // or 'in_channel'
-        text: `Result: ${result}`,
-      });
-    } catch (error) {
-      await respond({
-        response_type: 'ephemeral',
-        text: 'Sorry, something went wrong.',
-      });
-    }
-  });
-}
+bot.onSlashCommand("/sample-command", async (event) => {
+  try {
+    // Chat SDK handles ack and background processing automatically
+    await event.thread.startTyping();
+    const result = await processCommand(event.text);
+    await event.thread.post(`Result: ${result}`);
+  } catch (error) {
+    await event.thread.post("Sorry, something went wrong.");
+  }
+});
 ```
 
-**Sync vs Async Pattern:**
-- **Sync**: `await ack({ text: "Response" })` - immediate response in ack
-- **Async**: `await ack()` then `await respond({...})` - deferred response
+**No fire-and-forget pattern needed.** The Chat SDK acknowledges the request immediately and processes the handler in the background.
 
-For async commands doing AI processing, always use the async pattern. When using `@vercel/slack-bolt`, the response handling is automatic—no manual empty response needed.
+#### If using Bolt for JavaScript
+
+```typescript
+app.command('/sample-command', async ({ command, ack, respond }) => {
+  await ack(); // Always acknowledge within 3 seconds
+
+  try {
+    const result = await processCommand(command.text);
+    await respond({
+      response_type: 'ephemeral',
+      text: `Result: ${result}`,
+    });
+  } catch (error) {
+    await respond({
+      response_type: 'ephemeral',
+      text: 'Sorry, something went wrong.',
+    });
+  }
+});
+```
 
 ### Long-Running Slash Commands (AI, API calls)
 
-**CRITICAL:** If your slash command does AI processing or makes slow API calls, you MUST use the fire-and-forget pattern to avoid `operation_timeout` errors.
-
-**Why this matters:** Even with `await ack()`, the HTTP response doesn't return until your entire handler function completes. If you `await` AI generation after `ack()`, Slack times out after 3 seconds.
+#### If using Chat SDK
 
 ```typescript
-// server/listeners/commands/ai-command.ts
-import type { App } from '@slack/bolt';
-import type { Logger } from '@slack/bolt';
+bot.onSlashCommand("/ai-command", async (event) => {
+  await event.thread.startTyping();
+  // This can take as long as needed - Chat SDK handles the ack automatically
+  const result = await generateWithAI(event.text);
+  await event.thread.post(result);
+});
+```
 
-export function registerAICommand(app: App) {
-  app.command('/ai-command', async ({ ack, command, logger }) => {
-    // 1. Acknowledge immediately - this MUST happen first
-    await ack();
+#### If using Bolt for JavaScript
 
-    // 2. Fire-and-forget: Start async work WITHOUT awaiting
-    // The HTTP response returns immediately after this line
-    processInBackground(command.response_url, command.text, command.user_id, logger)
-      .catch((error) => {
-        logger.error("Background processing failed:", error);
-      });
-  });
-}
+**CRITICAL:** Use fire-and-forget to avoid `operation_timeout` errors.
 
-async function processInBackground(
-  responseUrl: string,
-  text: string,
-  userId: string,
-  logger: Logger
-) {
+```typescript
+app.command('/ai-command', async ({ ack, command, logger }) => {
+  await ack(); // Must happen first
+
+  // Fire-and-forget: DON'T await
+  processInBackground(command.response_url, command.text, logger)
+    .catch((error) => logger.error("Background processing failed:", error));
+});
+
+async function processInBackground(responseUrl: string, text: string, logger: Logger) {
   try {
-    // This can take as long as needed - we're not blocking the HTTP response
     const result = await generateWithAI(text);
-
-    // Post result via response_url (valid for 30 minutes)
     await fetch(responseUrl, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        response_type: "in_channel",
-        text: result,
-      }),
+      body: JSON.stringify({ response_type: "in_channel", text: result }),
     });
   } catch (error) {
     logger.error("AI processing failed:", error);
-
-    // Always send an error response so the user knows what happened
     await fetch(responseUrl, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        response_type: "ephemeral",
-        text: "Sorry, something went wrong processing your request.",
-      }),
+      body: JSON.stringify({ response_type: "ephemeral", text: "Sorry, something went wrong." }),
     });
   }
 }
 ```
 
-**When to Use Each Pattern:**
+**Bolt slash command patterns:**
 
 | Pattern | Use Case | Example |
 |---------|----------|---------|
-| **Sync** (`await ack({ text })`) | Instant responses, simple lookups | `/help`, `/status` |
+| **Sync** (`await ack({ text })`) | Instant responses | `/help`, `/status` |
 | **Async** (`await ack()` + `await respond()`) | Quick operations (<3 sec) | `/search keyword` |
-| **Fire-and-forget** (`await ack()` + no await) | AI/LLM, slow APIs, long processing | `/generate`, `/analyze` |
+| **Fire-and-forget** (`await ack()` + no await) | AI/LLM, slow APIs | `/generate`, `/analyze` |
 
-**Key points:**
-- The `response_url` from the command payload is valid for **30 minutes**
-- Always handle errors in your background function - the user won't see exceptions
-- Consider posting an initial "Processing..." message via `respond()` if the operation takes more than a few seconds
+---
 
 ## Action Handlers
 
-### Button Click Handler
+### If using Chat SDK
+
+```typescript
+bot.onAction("button_click", async (event) => {
+  await event.thread.post(`You clicked: ${event.value}`);
+});
+
+bot.onAction("select_option", async (event) => {
+  await event.thread.post(`You selected: ${event.value}`);
+});
+```
+
+### If using Bolt for JavaScript
 
 ```typescript
 app.action('button_click', async ({ body, ack, client }) => {
   await ack();
-
-  const { user, channel, message, actions } = body;
-  const buttonValue = actions[0].value;
-
-  // Update the original message
+  const buttonValue = body.actions[0].value;
   await client.chat.update({
-    channel: channel.id,
-    ts: message.ts,
+    channel: body.channel.id,
+    ts: body.message.ts,
     text: 'Updated message',
     blocks: [/* new blocks */],
   });
 });
-```
 
-### Select Menu Handler
-
-```typescript
-app.action('select_option', async ({ body, ack, client }) => {
+app.action('select_option', async ({ body, ack }) => {
   await ack();
-
   const selectedValue = body.actions[0].selected_option.value;
-
   // Handle selection...
 });
 ```
 
+---
+
 ## Modal Patterns
 
-### Opening a Modal
+### If using Chat SDK
+
+```tsx
+import { Modal, TextInput } from "chat";
+
+// Opening a modal
+bot.onSlashCommand("/open-form", async (event) => {
+  await event.openModal(
+    <Modal title="My Modal" submitLabel="Submit" callbackId="modal_submit">
+      <TextInput id="input_value" label="Your Input" placeholder="Enter something..." />
+    </Modal>
+  );
+});
+
+// Handling submission
+bot.onAction("modal_submit", async (event) => {
+  const inputValue = event.values?.input_value;
+  if (!inputValue || inputValue.length < 3) {
+    return { errors: { input_value: "Please enter at least 3 characters" } };
+  }
+  await event.thread.post(`You submitted: ${inputValue}`);
+});
+```
+
+### If using Bolt for JavaScript
 
 ```typescript
+// Opening a modal
 app.shortcut('open_modal', async ({ shortcut, ack, client }) => {
   await ack();
-
   await client.views.open({
     trigger_id: shortcut.trigger_id,
     view: {
@@ -418,28 +494,18 @@ app.shortcut('open_modal', async ({ shortcut, ack, client }) => {
     },
   });
 });
-```
 
-### Handling Modal Submission
-
-```typescript
+// Handling submission
 app.view('modal_submit', async ({ ack, body, view, client }) => {
-  // Validate input
   const inputValue = view.state.values.input_block.input_value.value;
-
   if (!inputValue || inputValue.length < 3) {
     await ack({
       response_action: 'errors',
-      errors: {
-        input_block: 'Please enter at least 3 characters',
-      },
+      errors: { input_block: 'Please enter at least 3 characters' },
     });
     return;
   }
-
   await ack();
-
-  // Process the submission...
   await client.chat.postMessage({
     channel: body.user.id,
     text: `You submitted: ${inputValue}`,
@@ -447,78 +513,31 @@ app.view('modal_submit', async ({ ack, body, view, client }) => {
 });
 ```
 
-## Error Handling
-
-### Graceful Error Responses
-
-```typescript
-async function handleWithErrorRecovery(
-  operation: () => Promise<void>,
-  say: SayFn,
-  thread_ts?: string
-) {
-  try {
-    await operation();
-  } catch (error) {
-    console.error('Operation failed:', error);
-
-    let userMessage = 'Something went wrong. Please try again.';
-
-    if (error instanceof SlackAPIError) {
-      if (error.code === 'channel_not_found') {
-        userMessage = "I don't have access to that channel.";
-      } else if (error.code === 'not_in_channel') {
-        userMessage = 'Please invite me to the channel first.';
-      }
-    }
-
-    await say({
-      text: userMessage,
-      thread_ts,
-    });
-  }
-}
-```
-
-### Rate Limiting
-
-```typescript
-import pRetry from 'p-retry';
-
-async function sendMessageWithRetry(client: WebClient, options: ChatPostMessageArguments) {
-  return pRetry(
-    () => client.chat.postMessage(options),
-    {
-      retries: 3,
-      onFailedAttempt: (error) => {
-        if (error.code === 'rate_limited') {
-          const retryAfter = error.retryAfter || 1;
-          console.log(`Rate limited. Retrying after ${retryAfter}s`);
-        }
-      },
-    }
-  );
-}
-```
+---
 
 ## Thread Management
 
-### Maintaining Thread Context
+### If using Chat SDK
+
+```typescript
+bot.onNewMention(async (thread, message) => {
+  await thread.subscribe();
+  await thread.post("I'm listening! Send me follow-up messages in this thread.");
+});
+
+bot.onSubscribedMessage(async (thread, message) => {
+  await thread.post(`Got your message: ${message.text}`);
+});
+```
+
+### If using Bolt for JavaScript
 
 ```typescript
 // Always reply in the same thread
 const thread_ts = event.thread_ts || event.ts;
+await say({ text: 'Response message', thread_ts });
 
-await say({
-  text: 'Response message',
-  thread_ts,
-});
-```
-
-### Broadcasting Thread Replies
-
-```typescript
-// Reply in thread AND post to channel
+// Broadcasting thread replies
 await client.chat.postMessage({
   channel: channelId,
   thread_ts: parentTs,
@@ -527,34 +546,25 @@ await client.chat.postMessage({
 });
 ```
 
+---
+
 ## Typing Indicators
 
-**Always use typing indicators** to keep Slack users informed of your agent's status. This provides a better user experience and prevents users from thinking the bot is unresponsive.
-
-### 30-Second Timeout
-
-Slack's typing indicator automatically expires after **30 seconds**. For long-running operations, you must call `setStatus` again to refresh the indicator.
-
-### Basic Usage
+### If using Chat SDK
 
 ```typescript
-// For Assistant threads
-app.event('assistant_thread_started', async ({ event, client }) => {
-  await client.assistant.threads.setStatus({
-    channel_id: event.channel,
-    thread_ts: event.thread_ts,
-    status: 'is thinking...',
-  });
-
-  // Process...
-
-  // Status clears automatically when you respond
+bot.onNewMention(async (thread, message) => {
+  await thread.startTyping();
+  const result = await processWithAI(message.text);
+  await thread.post(result); // Typing clears automatically
 });
 ```
 
-### Refreshing Status for Long Operations
+The Chat SDK handles typing indicator refresh and timeout automatically.
 
-For operations that may take longer than 30 seconds, refresh the status periodically:
+### If using Bolt for JavaScript
+
+Slack's typing indicator expires after **30 seconds**. Refresh for long operations:
 
 ```typescript
 async function withTypingIndicator<T>(
@@ -564,14 +574,12 @@ async function withTypingIndicator<T>(
   status: string,
   operation: () => Promise<T>
 ): Promise<T> {
-  // Set initial status
   await client.assistant.threads.setStatus({
     channel_id: channelId,
     thread_ts: threadTs,
     status,
   });
 
-  // Refresh status every 25 seconds (before 30s timeout)
   const refreshInterval = setInterval(async () => {
     await client.assistant.threads.setStatus({
       channel_id: channelId,
@@ -586,37 +594,102 @@ async function withTypingIndicator<T>(
     clearInterval(refreshInterval);
   }
 }
-
-// Usage
-const result = await withTypingIndicator(
-  client,
-  event.channel,
-  event.thread_ts,
-  'is researching...',
-  async () => {
-    // Long-running operation here
-    return await performResearch();
-  }
-);
 ```
 
-### Status Message Examples
+Status message examples: `'is thinking...'`, `'is researching...'`, `'is writing...'`, `'is analyzing...'`
 
-Use descriptive status messages to keep users informed:
-- `'is thinking...'` - General processing
-- `'is researching...'` - Searching or fetching data
-- `'is writing...'` - Generating content
-- `'is analyzing...'` - Processing complex data
+---
+
+## Error Handling
+
+### If using Chat SDK
+
+```typescript
+bot.onNewMention(async (thread, message) => {
+  try {
+    await processMessage(thread, message);
+  } catch (error) {
+    console.error("Operation failed:", error);
+    let userMessage = "Something went wrong. Please try again.";
+    if (error instanceof Error) {
+      if (error.message.includes("channel_not_found")) {
+        userMessage = "I don't have access to that channel.";
+      } else if (error.message.includes("not_in_channel")) {
+        userMessage = "Please invite me to the channel first.";
+      }
+    }
+    await thread.post(userMessage);
+  }
+});
+```
+
+### If using Bolt for JavaScript
+
+```typescript
+async function handleWithErrorRecovery(
+  operation: () => Promise<void>,
+  say: SayFn,
+  thread_ts?: string
+) {
+  try {
+    await operation();
+  } catch (error) {
+    console.error('Operation failed:', error);
+    let userMessage = 'Something went wrong. Please try again.';
+    if (error instanceof SlackAPIError) {
+      if (error.code === 'channel_not_found') {
+        userMessage = "I don't have access to that channel.";
+      } else if (error.code === 'not_in_channel') {
+        userMessage = 'Please invite me to the channel first.';
+      }
+    }
+    await say({ text: userMessage, thread_ts });
+  }
+}
+```
+
+#### Rate Limiting (Bolt)
+
+```typescript
+import pRetry from 'p-retry';
+
+async function sendMessageWithRetry(client: WebClient, options: ChatPostMessageArguments) {
+  return pRetry(
+    () => client.chat.postMessage(options),
+    {
+      retries: 3,
+      onFailedAttempt: (error) => {
+        if (error.code === 'rate_limited') {
+          console.log(`Rate limited. Retrying after ${error.retryAfter || 1}s`);
+        }
+      },
+    }
+  );
+}
+```
+
+---
 
 ## Best Practices Summary
 
-1. **Always acknowledge** within 3 seconds for interactive elements
-2. **Use threads** for conversations to keep channels clean
-3. **Provide fallback text** in all Block Kit messages
-4. **Handle errors gracefully** with user-friendly messages
-5. **Respect rate limits** with exponential backoff
-6. **Validate inputs** before processing
-7. **Use ephemeral messages** for sensitive or temporary information
-8. **Log errors** with context for debugging
-9. **Buffer request body** in events handler to avoid H3 stream consumption issues
-10. **Use fire-and-forget** for slash commands with AI/long operations (>3 sec)
+**Both frameworks:**
+1. **Handle errors gracefully** with user-friendly messages
+2. **Use ephemeral messages** for sensitive or temporary information
+3. **Log errors** with context for debugging
+4. **Use threads** to keep channels clean
+
+**Chat SDK specific:**
+5. **Subscribe to threads** with `thread.subscribe()` for follow-up conversations
+6. **Use JSX components** for rich messages instead of raw Block Kit JSON
+7. **Use typing indicators** with `thread.startTyping()`
+8. **Let Chat SDK handle ack** — no manual acknowledgment needed
+9. **Use `.tsx` extension** for files with JSX components
+10. **Configure tsconfig.json** with `"jsxImportSource": "chat"`
+
+**Bolt specific:**
+5. **Always acknowledge** within 3 seconds for interactive elements
+6. **Provide fallback text** in all Block Kit messages
+7. **Respect rate limits** with exponential backoff
+8. **Buffer request body** in events handler to avoid H3 stream issues
+9. **Use fire-and-forget** for slash commands with AI/long operations (>3 sec)
+10. **Use `reply_broadcast: true`** for important thread replies

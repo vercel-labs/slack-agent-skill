@@ -142,6 +142,6 @@ After approval, maintain these details for use in later phases:
 
 After the plan is approved, return to [Phase 1: Project Setup](./1-project-setup.md) to continue with:
 - Step 1.3: Choose LLM Provider
-- Step 1.4: Clone the Template
+- Step 1.4: Scaffold the Project
 
 Then proceed to [Phase 2: Create Slack App](./2-create-slack-app.md).

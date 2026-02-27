@@ -303,79 +303,92 @@ If migrating from v4/v5:
 
 ### Streaming to Slack
 
-Update Slack messages progressively for a better UX:
+#### If using Chat SDK
+
+The Chat SDK handles streaming updates to Slack automatically:
 
 ```typescript
 import { streamText } from "ai";
 import { gateway } from "@ai-sdk/gateway";
 
-async function streamToSlack(client: WebClient, channel: string, threadTs: string) {
-  // Post initial "thinking" message
-  const msg = await client.chat.postMessage({
-    channel,
-    thread_ts: threadTs,
-    text: "Thinking...",
-  });
+bot.onNewMention(async (thread, message) => {
+  await thread.startTyping();
 
   const result = await streamText({
     model: gateway("openai/gpt-4o-mini"),
     maxOutputTokens: 1000,
-    prompt: "Your prompt",
+    prompt: message.text,
+  });
+
+  // Chat SDK handles progressive Slack message updates automatically
+  await thread.post(result.textStream);
+});
+```
+
+#### If using Bolt for JavaScript
+
+Manually post an initial message and update it with streamed content:
+
+```typescript
+import { streamText } from "ai";
+import { gateway } from "@ai-sdk/gateway";
+
+app.event('app_mention', async ({ event, client }) => {
+  const result = await streamText({
+    model: gateway("openai/gpt-4o-mini"),
+    maxOutputTokens: 1000,
+    prompt: event.text.replace(/<@[A-Z0-9]+>/g, '').trim(),
+  });
+
+  const msg = await client.chat.postMessage({
+    channel: event.channel,
+    thread_ts: event.thread_ts || event.ts,
+    text: "Thinking...",
   });
 
   let fullText = "";
-  let lastUpdate = Date.now();
-  const UPDATE_INTERVAL = 500; // ms
-
   for await (const chunk of result.textStream) {
     fullText += chunk;
-
-    // Throttle updates to avoid rate limits
-    if (Date.now() - lastUpdate > UPDATE_INTERVAL) {
-      await client.chat.update({
-        channel,
-        ts: msg.ts!,
-        text: fullText + "...",
-      });
-      lastUpdate = Date.now();
-    }
+    await client.chat.update({
+      channel: event.channel,
+      ts: msg.ts,
+      text: fullText,
+    });
   }
-
-  // Final update
-  await client.chat.update({
-    channel,
-    ts: msg.ts!,
-    text: fullText,
-  });
-}
+});
 ```
 
 ### Tool Results in Slack
 
-Format tool results nicely:
+AI SDK tools work identically in both frameworks. The difference is how you post results:
+
+#### If using Chat SDK
 
 ```typescript
-import { generateText, tool } from "ai";
-import { gateway } from "@ai-sdk/gateway";
+bot.onNewMention(async (thread, message) => {
+  const result = await generateText({
+    model: gateway("openai/gpt-4o-mini"),
+    tools: { /* your tools */ },
+    prompt: message.text,
+  });
+  await thread.post(result.text);
+});
+```
 
-const result = await generateText({
-  model: gateway("openai/gpt-4o-mini"),
-  tools: {
-    lookupUser: tool({
-      description: "Look up a Slack user",
-      inputSchema: z.object({
-        userId: z.string(),
-      }),
-      execute: async ({ userId }) => {
-        const user = await client.users.info({ user: userId });
-        return {
-          name: user.user?.real_name,
-          email: user.user?.profile?.email,
-        };
-      },
-    }),
-  },
-  prompt: "Who is <@U123456>?",
+#### If using Bolt for JavaScript
+
+```typescript
+app.event('app_mention', async ({ event, client }) => {
+  const result = await generateText({
+    model: gateway("openai/gpt-4o-mini"),
+    tools: { /* your tools */ },
+    prompt: event.text.replace(/<@[A-Z0-9]+>/g, '').trim(),
+  });
+  await client.chat.postMessage({
+    channel: event.channel,
+    thread_ts: event.thread_ts || event.ts,
+    text: result.text,
+  });
 });
 ```
 

@@ -6,7 +6,7 @@ Complete reference for all environment variables used in Slack agent projects.
 
 ### SLACK_BOT_TOKEN
 
-**Description:** OAuth token for authenticating Slack API calls.
+**Description:** OAuth token for authenticating Slack API calls. Auto-detected by `@chat-adapter/slack` (Chat SDK) or used with `new App({ token })` (Bolt).
 
 **Source:**
 1. Go to https://api.slack.com/apps
@@ -15,11 +15,6 @@ Complete reference for all environment variables used in Slack agent projects.
 4. Copy **Bot User OAuth Token**
 
 **Format:** `xoxb-XXXXXXXXX-XXXXXXXXX-XXXXXXXXXXXXXXXXXXXXXXXX`
-
-**Usage:**
-```typescript
-const client = new WebClient(process.env.SLACK_BOT_TOKEN);
-```
 
 **Security:**
 - Never commit to version control
@@ -30,7 +25,7 @@ const client = new WebClient(process.env.SLACK_BOT_TOKEN);
 
 ### SLACK_SIGNING_SECRET
 
-**Description:** Secret used to verify requests originate from Slack.
+**Description:** Secret used to verify requests originate from Slack. Auto-detected by `@chat-adapter/slack` (Chat SDK) or `@vercel/slack-bolt` (Bolt).
 
 **Source:**
 1. Go to https://api.slack.com/apps
@@ -40,12 +35,38 @@ const client = new WebClient(process.env.SLACK_BOT_TOKEN);
 
 **Format:** 32-character hexadecimal string
 
-**Usage:** Automatically used by Slack Bolt to verify request signatures.
+**Usage:** Automatically used by the Chat SDK Slack adapter or `@vercel/slack-bolt` VercelReceiver to verify request signatures.
 
 **Security:**
 - Never commit to version control
 - Rotate if compromised
 - Each Slack app has a unique secret
+
+---
+
+### REDIS_URL (Chat SDK only)
+
+**Description:** Redis connection URL for the Chat SDK state adapter (`@chat-adapter/state-redis`). **Not required for Bolt projects** unless you add Redis manually.
+
+**Source:**
+- [Upstash Redis](https://upstash.com) (recommended for serverless)
+- Any Redis-compatible provider
+
+**Format:** `redis://default:PASSWORD@HOST:PORT` or `rediss://...` for TLS
+
+**Usage:**
+```typescript
+import { createRedisState } from "@chat-adapter/state-redis";
+
+const state = createRedisState(); // Reads REDIS_URL automatically
+```
+
+**Note:** For local development, you can use an in-memory state adapter instead:
+```typescript
+import { createMemoryState } from "chat";
+
+const state = createMemoryState();
+```
 
 ---
 
@@ -184,7 +205,7 @@ const result = await generateText({
 
 **Format:** Alphanumeric string
 
-**Usage:** Used by `slack run` or `pnpm dev:tunnel` for local development.
+**Usage:** Used for local development tunneling.
 
 **Note:** Not needed in production deployments.
 
@@ -221,13 +242,17 @@ const result = await generateText({
 
 ## Local Development Setup
 
-Create a `.env` file in your project root:
+Create a `.env` file in your project root.
 
-**Using Vercel AI Gateway (recommended):**
+### If using Chat SDK (with Vercel AI Gateway)
+
 ```env
-# Required - Slack credentials only
+# Required - Slack credentials (auto-detected by Chat SDK)
 SLACK_BOT_TOKEN=xoxb-your-token-here
 SLACK_SIGNING_SECRET=your-signing-secret
+
+# Required - State persistence
+REDIS_URL=redis://default:password@host:port
 
 # Development tunnel
 NGROK_AUTH_TOKEN=your-ngrok-token
@@ -239,16 +264,12 @@ LOG_LEVEL=debug
 # No AI keys needed - Vercel AI Gateway handles this automatically!
 ```
 
-**Using Direct Provider SDK:**
+### If using Bolt for JavaScript (with Vercel AI Gateway)
+
 ```env
 # Required - Slack credentials
 SLACK_BOT_TOKEN=xoxb-your-token-here
 SLACK_SIGNING_SECRET=your-signing-secret
-
-# AI Provider API Key (choose one based on your provider)
-OPENAI_API_KEY=sk-your-openai-key
-# ANTHROPIC_API_KEY=sk-ant-your-anthropic-key
-# GOOGLE_GENERATIVE_AI_API_KEY=your-google-key
 
 # Development tunnel
 NGROK_AUTH_TOKEN=your-ngrok-token
@@ -256,6 +277,19 @@ NGROK_AUTH_TOKEN=your-ngrok-token
 # Optional
 NODE_ENV=development
 LOG_LEVEL=debug
+
+# No AI keys needed - Vercel AI Gateway handles this automatically!
+# No REDIS_URL needed unless you add Redis manually
+```
+
+### Using Direct Provider SDK (either framework)
+
+Add your provider's API key:
+```env
+# AI Provider API Key (choose one based on your provider)
+OPENAI_API_KEY=sk-your-openai-key
+# ANTHROPIC_API_KEY=sk-ant-your-anthropic-key
+# GOOGLE_GENERATIVE_AI_API_KEY=your-google-key
 ```
 
 ## Security Best Practices
@@ -356,7 +390,22 @@ function getRequiredEnv(name: string): string {
 const token = getRequiredEnv('SLACK_BOT_TOKEN');
 ```
 
-### In Nitro Config
+### In Framework Config
+
+#### If using Chat SDK (Next.js)
+
+```typescript
+// next.config.ts
+import type { NextConfig } from "next";
+
+const nextConfig: NextConfig = {
+  // Environment variables are available via process.env in server components and API routes
+};
+
+export default nextConfig;
+```
+
+#### If using Bolt for JavaScript (Nitro)
 
 ```typescript
 // nitro.config.ts
@@ -368,9 +417,8 @@ export default defineNitroConfig({
 });
 ```
 
-### Using Runtime Config
-
 ```typescript
+// Access via useRuntimeConfig()
 const config = useRuntimeConfig();
 const token = config.slackBotToken;
 ```

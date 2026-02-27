@@ -19,7 +19,7 @@ Ask the user:
 
 **After collecting responses:**
 
-1. Read the `manifest.json` file from the project
+1. Read the `manifest.json` file from the project (or create one if it doesn't exist)
 2. Update these fields with the user's values:
    - `display_information.name` -> App Name
    - `display_information.description` -> App Description (if provided)
@@ -40,6 +40,20 @@ Ask the user:
     "bot_user": {
       "display_name": "Joke Bot",
       "always_online": true
+    }
+  }
+}
+```
+
+**Important:** The webhook URL should use `/api/webhooks/slack` (the Chat SDK convention):
+```json
+{
+  "settings": {
+    "event_subscriptions": {
+      "request_url": "https://your-domain.vercel.app/api/webhooks/slack"
+    },
+    "interactivity": {
+      "request_url": "https://your-domain.vercel.app/api/webhooks/slack"
     }
   }
 }

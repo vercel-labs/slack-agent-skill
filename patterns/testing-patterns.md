@@ -1,27 +1,64 @@
 # Testing Patterns for Slack Agents
 
-This document provides detailed testing patterns for Slack agent projects.
+This document provides detailed testing patterns for Slack agent projects built with either the Chat SDK or Bolt for JavaScript.
 
 ## Test File Organization
+
+### If using Chat SDK
+
+```
+lib/
+├── __tests__/
+│   ├── setup.ts              # Global test setup and mocks
+│   └── helpers/
+│       ├── mock-context.ts   # Shared context mocks
+│       └── mock-thread.ts    # Chat SDK thread mocks
+├── bot.tsx                   # Bot instance
+├── bot.test.ts               # Bot handler tests
+├── ai/
+│   ├── agent.ts
+│   ├── agent.test.ts         # Unit tests (co-located)
+│   └── tools/
+│       ├── search.ts
+│       └── search.test.ts
+app/
+├── api/
+│   └── webhooks/
+│       └── [platform]/
+│           └── route.ts
+```
+
+Template files: `./templates/chat-sdk/`
+
+### If using Bolt for JavaScript
 
 ```
 server/
 ├── __tests__/
 │   ├── setup.ts              # Global test setup and mocks
 │   └── helpers/
-│       ├── mock-context.ts   # Shared context mocks
-│       └── mock-slack.ts     # Slack API mocks
-├── lib/
-│   └── ai/
-│       ├── agent.ts
-│       ├── agent.test.ts     # Unit tests (co-located)
-│       ├── tools.ts
-│       └── tools.test.ts
-└── listeners/
-    └── assistant/
-        ├── thread-started.ts
-        └── thread-started.test.ts
+│       ├── mock-client.ts    # Slack WebClient mocks
+│       └── mock-context.ts   # Bolt context mocks
+├── bolt/
+│   └── app.ts
+├── listeners/
+│   ├── events/
+│   │   ├── app-mention.ts
+│   │   └── app-mention.test.ts
+│   └── commands/
+│       ├── sample-command.ts
+│       └── sample-command.test.ts
+└── lib/
+    └── ai/
+        ├── agent.ts
+        ├── agent.test.ts
+        └── tools.ts
+        └── tools.test.ts
 ```
+
+Template files: `./templates/bolt/`
+
+---
 
 ## Unit Testing Tools
 
@@ -30,21 +67,6 @@ server/
 ```typescript
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { getChannelMessages } from './tools';
-
-// Mock the Slack Web API
-vi.mock('@slack/web-api', () => ({
-  WebClient: vi.fn().mockImplementation(() => ({
-    conversations: {
-      history: vi.fn().mockResolvedValue({
-        ok: true,
-        messages: [
-          { text: 'Hello', user: 'U123', ts: '123.456' },
-          { text: 'World', user: 'U456', ts: '123.457' },
-        ],
-      }),
-    },
-  })),
-}));
 
 describe('getChannelMessages', () => {
   beforeEach(() => {
@@ -63,16 +85,6 @@ describe('getChannelMessages', () => {
   });
 
   it('should handle empty channel', async () => {
-    // Override mock for this test
-    vi.mocked(WebClient).mockImplementationOnce(() => ({
-      conversations: {
-        history: vi.fn().mockResolvedValue({
-          ok: true,
-          messages: [],
-        }),
-      },
-    }));
-
     const result = await getChannelMessages.execute({
       channel_id: 'C_EMPTY',
       limit: 10,
@@ -83,12 +95,6 @@ describe('getChannelMessages', () => {
   });
 
   it('should handle API errors gracefully', async () => {
-    vi.mocked(WebClient).mockImplementationOnce(() => ({
-      conversations: {
-        history: vi.fn().mockRejectedValue(new Error('channel_not_found')),
-      },
-    }));
-
     const result = await getChannelMessages.execute({
       channel_id: 'C_INVALID',
       limit: 10,
@@ -100,230 +106,318 @@ describe('getChannelMessages', () => {
 });
 ```
 
-### Testing the Agent
+---
+
+## Testing Bot / Event Handlers
+
+### If using Chat SDK
 
 ```typescript
 import { describe, it, expect, vi } from 'vitest';
-import { createSlackAgent } from './agent';
+import { createMockThread, createMockMessage } from './helpers/mock-thread';
 
-describe('createSlackAgent', () => {
-  const mockContext = {
-    channel_id: 'C12345678',
-    dm_channel: 'D12345678',
-    thread_ts: '1234567890.123456',
-    is_dm: false,
-    team_id: 'T12345678',
-  };
+describe('bot.onNewMention', () => {
+  it('should respond to mention and subscribe', async () => {
+    const thread = createMockThread();
+    const message = createMockMessage({ text: 'hello' });
 
-  it('should create agent with required properties', () => {
-    const agent = createSlackAgent(mockContext);
+    await handleMention(thread, message);
 
-    expect(agent).toBeDefined();
-    expect(agent.model).toBeDefined();
-    expect(agent.tools).toBeDefined();
-    expect(agent.system).toBeDefined();
-  });
-
-  it('should include context in system prompt', () => {
-    const agent = createSlackAgent(mockContext);
-
-    expect(agent.system).toContain('C12345678');
-  });
-
-  it('should include all required tools', () => {
-    const agent = createSlackAgent(mockContext);
-    const toolNames = Object.keys(agent.tools);
-
-    expect(toolNames).toContain('getChannelMessages');
-    expect(toolNames).toContain('getThreadMessages');
-    expect(toolNames).toContain('joinChannel');
-    expect(toolNames).toContain('searchChannels');
-  });
-
-  it('should handle DM context', () => {
-    const dmContext = {
-      ...mockContext,
-      is_dm: true,
-      channel_id: '',
-    };
-
-    const agent = createSlackAgent(dmContext);
-
-    expect(agent).toBeDefined();
-    expect(agent.system).toContain('direct message');
-  });
-});
-```
-
-## Testing Event Listeners
-
-### Testing a Message Listener
-
-```typescript
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { handleAppMention } from './app-mention';
-
-describe('handleAppMention', () => {
-  const mockSay = vi.fn();
-  const mockClient = {
-    chat: {
-      postMessage: vi.fn(),
-      update: vi.fn(),
-    },
-  };
-
-  beforeEach(() => {
-    vi.clearAllMocks();
-  });
-
-  it('should respond to mention', async () => {
-    const event = {
-      type: 'app_mention',
-      user: 'U12345678',
-      text: '<@BOT123> hello',
-      channel: 'C12345678',
-      ts: '123.456',
-    };
-
-    await handleAppMention({
-      event,
-      say: mockSay,
-      client: mockClient,
-    });
-
-    expect(mockSay).toHaveBeenCalled();
+    expect(thread.subscribe).toHaveBeenCalled();
+    expect(thread.post).toHaveBeenCalled();
   });
 
   it('should handle mention in thread', async () => {
-    const event = {
-      type: 'app_mention',
-      user: 'U12345678',
-      text: '<@BOT123> help',
-      channel: 'C12345678',
-      ts: '123.456',
-      thread_ts: '123.400',
-    };
+    const thread = createMockThread({ threadTs: '123.400' });
+    const message = createMockMessage({ text: 'help' });
 
-    await handleAppMention({
-      event,
-      say: mockSay,
-      client: mockClient,
-    });
+    await handleMention(thread, message);
 
-    expect(mockSay).toHaveBeenCalledWith(
-      expect.objectContaining({
-        thread_ts: '123.400',
-      })
-    );
+    expect(thread.post).toHaveBeenCalled();
   });
 });
 ```
 
-### Testing a Slash Command
+### If using Bolt for JavaScript
 
 ```typescript
 import { describe, it, expect, vi } from 'vitest';
-import { handleSampleCommand } from './sample-command';
+import { createMockSlackClient, createMockEvent } from './helpers/mock-client';
 
-describe('/sample-command', () => {
-  const mockAck = vi.fn();
-  const mockRespond = vi.fn();
-
-  it('should acknowledge command immediately', async () => {
-    await handleSampleCommand({
-      command: {
-        command: '/sample-command',
-        text: 'test input',
-        user_id: 'U12345678',
-        channel_id: 'C12345678',
-      },
-      ack: mockAck,
-      respond: mockRespond,
+describe('app_mention handler', () => {
+  it('should respond to mention in thread', async () => {
+    const client = createMockSlackClient();
+    const event = createMockEvent('app_mention', {
+      text: '<@U12345678> hello',
+      channel: 'C12345678',
+      ts: '123.456',
     });
 
-    expect(mockAck).toHaveBeenCalled();
-  });
+    await handleAppMention({ event, client, say: vi.fn() });
 
-  it('should respond with expected format', async () => {
-    await handleSampleCommand({
-      command: {
-        command: '/sample-command',
-        text: 'test',
-        user_id: 'U12345678',
-        channel_id: 'C12345678',
-      },
-      ack: mockAck,
-      respond: mockRespond,
-    });
-
-    expect(mockRespond).toHaveBeenCalledWith(
+    expect(client.chat.postMessage).toHaveBeenCalledWith(
       expect.objectContaining({
-        response_type: 'ephemeral',
+        channel: 'C12345678',
+        thread_ts: '123.456',
       })
     );
   });
 });
 ```
 
-## E2E Testing Patterns
+---
 
-### Testing Full Message Flow
+## Testing Slash Commands
+
+### If using Chat SDK
 
 ```typescript
-// server/__tests__/e2e/message-flow.e2e.test.ts
-import { describe, it, expect, vi, beforeAll, afterAll } from 'vitest';
-import { createTestApp } from '../helpers/test-app';
+import { describe, it, expect, vi } from 'vitest';
+import { createMockSlashCommandEvent } from './helpers/mock-thread';
 
-describe('E2E: Message Flow', () => {
-  let app;
-
-  beforeAll(async () => {
-    app = await createTestApp();
-  });
-
-  afterAll(async () => {
-    await app.stop();
-  });
-
-  it('should handle complete mention flow', async () => {
-    const response = await app.simulateEvent('app_mention', {
-      user: 'U12345678',
-      text: '<@BOT123> what channels am I in?',
-      channel: 'C12345678',
+describe('/sample-command', () => {
+  it('should process command and respond', async () => {
+    const event = createMockSlashCommandEvent({
+      text: 'test input',
+      userId: 'U12345678',
     });
 
-    expect(response.messages).toHaveLength(1);
-    expect(response.messages[0].text).toContain('channel');
+    await handleSampleCommand(event);
+
+    expect(event.thread.post).toHaveBeenCalledWith(
+      expect.stringContaining('Result')
+    );
+  });
+
+  it('should handle errors gracefully', async () => {
+    const event = createMockSlashCommandEvent({ text: '' });
+
+    await handleSampleCommand(event);
+
+    expect(event.thread.post).toHaveBeenCalledWith(
+      expect.stringContaining('went wrong')
+    );
+  });
+});
+```
+
+### If using Bolt for JavaScript
+
+```typescript
+import { describe, it, expect, vi } from 'vitest';
+
+describe('/sample-command', () => {
+  it('should ack and respond', async () => {
+    const ack = vi.fn();
+    const respond = vi.fn();
+    const command = {
+      text: 'test input',
+      user_id: 'U12345678',
+      channel_id: 'C12345678',
+      response_url: 'https://hooks.slack.com/commands/...',
+    };
+
+    await handleSampleCommand({ ack, command, respond });
+
+    expect(ack).toHaveBeenCalled();
+    expect(respond).toHaveBeenCalledWith(
+      expect.objectContaining({ text: expect.stringContaining('Result') })
+    );
+  });
+});
+```
+
+---
+
+## Testing Action Handlers
+
+### If using Chat SDK
+
+```typescript
+import { describe, it, expect, vi } from 'vitest';
+import { createMockActionEvent } from './helpers/mock-thread';
+
+describe('button_click action', () => {
+  it('should handle button click', async () => {
+    const event = createMockActionEvent({
+      actionId: 'button_click',
+      value: 'clicked_value',
+    });
+
+    await handleButtonClick(event);
+
+    expect(event.thread.post).toHaveBeenCalled();
+  });
+});
+```
+
+### If using Bolt for JavaScript
+
+```typescript
+import { describe, it, expect, vi } from 'vitest';
+
+describe('button_click action', () => {
+  it('should ack and handle click', async () => {
+    const ack = vi.fn();
+    const client = createMockSlackClient();
+    const body = {
+      actions: [{ value: 'clicked_value' }],
+      channel: { id: 'C12345678' },
+      message: { ts: '123.456' },
+    };
+
+    await handleButtonClick({ ack, body, client });
+
+    expect(ack).toHaveBeenCalled();
+    expect(client.chat.update).toHaveBeenCalled();
+  });
+});
+```
+
+---
+
+## E2E Testing Patterns
+
+### Full Message Flow (Chat SDK)
+
+```typescript
+describe('E2E: Message Flow', () => {
+  it('should handle complete mention flow', async () => {
+    const thread = createMockThread();
+    const message = createMockMessage({ text: 'what channels am I in?' });
+
+    await handleMention(thread, message);
+
+    expect(thread.subscribe).toHaveBeenCalled();
+    expect(thread.post).toHaveBeenCalled();
   });
 
   it('should handle conversation in thread', async () => {
-    // First message
-    const initial = await app.simulateEvent('app_mention', {
-      user: 'U12345678',
-      text: '<@BOT123> start a task',
+    const thread = createMockThread({ threadTs: '100.001' });
+
+    const mention = createMockMessage({ text: 'start a task' });
+    await handleMention(thread, mention);
+
+    const followUp = createMockMessage({ text: 'continue please' });
+    await handleSubscribedMessage(thread, followUp);
+
+    expect(thread.post).toHaveBeenCalledTimes(2);
+  });
+});
+```
+
+### Full Message Flow (Bolt)
+
+```typescript
+describe('E2E: Message Flow', () => {
+  it('should handle mention and reply in thread', async () => {
+    const client = createMockSlackClient();
+    const event = createMockEvent('app_mention', {
+      text: '<@UBOT> what channels am I in?',
       channel: 'C12345678',
       ts: '100.001',
     });
 
-    // Follow-up in thread
-    const followUp = await app.simulateEvent('message', {
-      user: 'U12345678',
-      text: 'continue please',
-      channel: 'C12345678',
-      thread_ts: '100.001',
-    });
+    await handleAppMention({ event, client, say: vi.fn() });
 
-    expect(followUp.messages[0].thread_ts).toBe('100.001');
+    expect(client.chat.postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ thread_ts: '100.001' })
+    );
   });
 });
 ```
 
+---
+
 ## Mock Helpers
 
-### Creating a Mock Slack Context
+### Chat SDK Mock Factories
 
 ```typescript
-// server/__tests__/helpers/mock-context.ts
+// lib/__tests__/helpers/mock-thread.ts
+import { vi } from 'vitest';
+
+export function createMockThread(overrides = {}) {
+  return {
+    post: vi.fn().mockResolvedValue(undefined),
+    subscribe: vi.fn().mockResolvedValue(undefined),
+    startTyping: vi.fn().mockResolvedValue(undefined),
+    state: {
+      get: vi.fn().mockResolvedValue(null),
+      set: vi.fn().mockResolvedValue(undefined),
+    },
+    channelId: 'C12345678',
+    threadTs: undefined,
+    ...overrides,
+  };
+}
+
+export function createMockMessage(overrides = {}) {
+  return {
+    text: 'test message',
+    userId: 'U12345678',
+    ts: '1234567890.123456',
+    ...overrides,
+  };
+}
+
+export function createMockSlashCommandEvent(overrides = {}) {
+  return {
+    text: '',
+    userId: 'U12345678',
+    channelId: 'C12345678',
+    thread: createMockThread(),
+    openModal: vi.fn().mockResolvedValue(undefined),
+    ...overrides,
+  };
+}
+
+export function createMockActionEvent(overrides = {}) {
+  return {
+    actionId: '',
+    value: '',
+    userId: 'U12345678',
+    thread: createMockThread(),
+    ...overrides,
+  };
+}
+```
+
+### Bolt Mock Factories
+
+```typescript
+// server/__tests__/helpers/mock-client.ts
+import { vi } from 'vitest';
+
+export function createMockSlackClient() {
+  return {
+    conversations: {
+      history: vi.fn().mockResolvedValue({ ok: true, messages: [], has_more: false }),
+      replies: vi.fn().mockResolvedValue({ ok: true, messages: [], has_more: false }),
+      join: vi.fn().mockResolvedValue({ ok: true, channel: { id: 'C12345678' } }),
+      list: vi.fn().mockResolvedValue({ ok: true, channels: [] }),
+      info: vi.fn().mockResolvedValue({ ok: true, channel: { id: 'C12345678', name: 'general' } }),
+    },
+    chat: {
+      postMessage: vi.fn().mockResolvedValue({ ok: true, ts: '1234567890.123456', channel: 'C12345678' }),
+      update: vi.fn().mockResolvedValue({ ok: true, ts: '1234567890.123456' }),
+      delete: vi.fn().mockResolvedValue({ ok: true }),
+    },
+    users: {
+      info: vi.fn().mockResolvedValue({ ok: true, user: { id: 'U12345678', name: 'testuser' } }),
+    },
+    reactions: {
+      add: vi.fn().mockResolvedValue({ ok: true }),
+      remove: vi.fn().mockResolvedValue({ ok: true }),
+    },
+    views: {
+      open: vi.fn().mockResolvedValue({ ok: true }),
+      update: vi.fn().mockResolvedValue({ ok: true }),
+      push: vi.fn().mockResolvedValue({ ok: true }),
+    },
+  };
+}
+
 export function createMockContext(overrides = {}) {
   return {
     channel_id: 'C12345678',
@@ -336,60 +430,29 @@ export function createMockContext(overrides = {}) {
   };
 }
 
-export function createMockThreadContext(threadTs: string) {
-  return createMockContext({
-    thread_ts: threadTs,
-  });
-}
-
-export function createMockDMContext() {
-  return createMockContext({
-    is_dm: true,
-    channel_id: 'D12345678',
-  });
-}
-```
-
-### Creating a Mock Slack Client
-
-```typescript
-// server/__tests__/helpers/mock-slack.ts
-import { vi } from 'vitest';
-
-export function createMockSlackClient() {
+export function createMockEvent(type: string, overrides = {}) {
   return {
-    conversations: {
-      history: vi.fn().mockResolvedValue({ ok: true, messages: [] }),
-      replies: vi.fn().mockResolvedValue({ ok: true, messages: [] }),
-      join: vi.fn().mockResolvedValue({ ok: true }),
-      list: vi.fn().mockResolvedValue({ ok: true, channels: [] }),
-      info: vi.fn().mockResolvedValue({ ok: true, channel: {} }),
-    },
-    chat: {
-      postMessage: vi.fn().mockResolvedValue({ ok: true, ts: '123.456' }),
-      update: vi.fn().mockResolvedValue({ ok: true }),
-      delete: vi.fn().mockResolvedValue({ ok: true }),
-    },
-    users: {
-      info: vi.fn().mockResolvedValue({ ok: true, user: {} }),
-    },
-    reactions: {
-      add: vi.fn().mockResolvedValue({ ok: true }),
-      remove: vi.fn().mockResolvedValue({ ok: true }),
-    },
+    type,
+    user: 'U12345678',
+    channel: 'C12345678',
+    ts: '1234567890.123456',
+    event_ts: '1234567890.123456',
+    ...overrides,
   };
 }
 ```
 
+---
+
 ## Test Coverage Guidelines
 
-Aim for these coverage targets:
+Aim for these coverage targets (both frameworks):
 
 | Category | Target |
 |----------|--------|
 | Tools | 90%+ |
 | Agent logic | 85%+ |
-| Event listeners | 80%+ |
+| Event handlers | 80%+ |
 | Utilities | 90%+ |
 | Overall | 80%+ |
 

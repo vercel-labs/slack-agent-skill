@@ -14,35 +14,74 @@ pnpm add -D vitest @vitest/coverage-v8
 
 ## Step 6.2: Create Test Config
 
-Create `vitest.config.ts` in the project root with the following content:
+Create `vitest.config.ts` in the project root. The configuration depends on the framework.
+
+### If using Chat SDK
 
 ```typescript
 import { defineConfig } from 'vitest/config';
 
 export default defineConfig({
   test: {
-    // Use globals (describe, it, expect) without imports
     globals: true,
-
-    // Node environment for server-side code
     environment: 'node',
+    include: [
+      'lib/**/*.test.ts',
+      'lib/**/*.test.tsx',
+      'app/**/*.test.ts',
+    ],
+    exclude: [
+      'node_modules',
+      '.next',
+      'dist',
+    ],
+    coverage: {
+      provider: 'v8',
+      reporter: ['text', 'json', 'html'],
+      include: ['lib/**/*.ts', 'lib/**/*.tsx', 'app/**/*.ts'],
+      exclude: [
+        'lib/**/*.test.ts',
+        'lib/**/*.test.tsx',
+        'lib/**/*.d.ts',
+        'lib/__tests__/**',
+      ],
+      thresholds: {
+        lines: 70,
+        functions: 70,
+        branches: 60,
+        statements: 70,
+      },
+    },
+    setupFiles: ['./lib/__tests__/setup.ts'],
+    testTimeout: 10000,
+    retry: 0,
+    reporters: ['verbose'],
+  },
+});
+```
 
-    // Test file patterns
+You can also copy this from `./templates/chat-sdk/vitest.config.ts`.
+
+### If using Bolt for JavaScript
+
+```typescript
+import { defineConfig } from 'vitest/config';
+
+export default defineConfig({
+  test: {
+    globals: true,
+    environment: 'node',
     include: [
       'server/**/*.test.ts',
       'server/**/*.test.tsx',
       'server/**/*.e2e.test.ts',
     ],
-
-    // Exclude patterns
     exclude: [
       'node_modules',
       '.nitro',
       '.output',
       'dist',
     ],
-
-    // Coverage configuration
     coverage: {
       provider: 'v8',
       reporter: ['text', 'json', 'html'],
@@ -52,7 +91,6 @@ export default defineConfig({
         'server/**/*.d.ts',
         'server/**/__tests__/**',
       ],
-      // Coverage thresholds (adjust as needed)
       thresholds: {
         lines: 70,
         functions: 70,
@@ -60,29 +98,31 @@ export default defineConfig({
         statements: 70,
       },
     },
-
-    // Setup files run before each test file
     setupFiles: ['./server/__tests__/setup.ts'],
-
-    // Timeout for async operations (ms)
     testTimeout: 10000,
-
-    // Retry failed tests (useful for flaky network tests)
     retry: 0,
-
-    // Reporter configuration
     reporters: ['verbose'],
   },
 });
 ```
 
-You can also copy this from `./templates/vitest.config.ts`.
+You can also copy this from `./templates/bolt/vitest.config.ts`.
 
 ---
 
 ## Step 6.3: Create Test Setup
 
-Create `server/__tests__/setup.ts` with test utilities and mocks. You can copy the template from `./templates/test-setup.ts`.
+### If using Chat SDK
+Create `lib/__tests__/setup.ts` with test utilities and mocks. You can copy the template from `./templates/chat-sdk/test-setup.ts`.
+
+This setup file provides:
+- Environment variable stubs for tests
+- Chat SDK mocking (thread, message, state)
+- Mock factories for creating test fixtures
+- Test lifecycle hooks
+
+### If using Bolt for JavaScript
+Create `server/__tests__/setup.ts` with test utilities and mocks. You can copy the template from `./templates/bolt/test-setup.ts`.
 
 This setup file provides:
 - Environment variable stubs for tests
@@ -111,8 +151,15 @@ Add to `package.json`:
 
 ## Step 6.5: Create Sample Tests
 
-Copy the sample test templates from `./templates/sample-tests/` to your project:
+Copy the sample test templates to your project:
 
+### If using Chat SDK
+Copy from `./templates/chat-sdk/sample-tests/`:
+- `agent.test.ts` - Sample bot handler tests
+- `tools.test.ts` - Sample tool unit tests
+
+### If using Bolt for JavaScript
+Copy from `./templates/bolt/sample-tests/`:
 - `agent.test.ts` - Sample agent unit tests
 - `tools.test.ts` - Sample tool unit tests
 
@@ -136,7 +183,7 @@ Aim for these coverage targets:
 |----------|--------|
 | Tools | 90%+ |
 | Agent logic | 85%+ |
-| Event listeners | 80%+ |
+| Event handlers / listeners | 80%+ |
 | Utilities | 90%+ |
 | Overall | 80%+ |
 
@@ -159,7 +206,17 @@ pnpm test:coverage
 ## Complete!
 
 Your Slack agent is now set up with:
-- Project from the official template
+
+### If using Chat SDK
+- Next.js project with Chat SDK
+- Slack app with customized manifest
+- Environment configuration (including Redis)
+- Local development workflow
+- Production deployment on Vercel
+- Testing infrastructure
+
+### If using Bolt for JavaScript
+- Nitro project with Bolt for JavaScript
 - Slack app with customized manifest
 - Environment configuration
 - Local development workflow
