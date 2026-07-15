@@ -1,91 +1,62 @@
 # Phase 3: Configure Environment
 
-This phase sets up the environment variables needed for the Slack agent to run.
+This phase sets up the environment variables needed for the Slack agent to run. With Vercel Connect there are no Slack tokens to paste — the only Slack variable is `SLACK_CONNECTOR`, using the connector UID from Phase 2.
 
 ---
 
-## Step 3.1: Create .env File
+## Step 3.1: Link the Project and Pull Environment
 
-Create the `.env` file based on the user's LLM choice from Step 1.3:
+Link the directory to the Vercel project and pull the environment. This fetches `VERCEL_OIDC_TOKEN` into `.env.local`, which authenticates local calls to both the AI Gateway and Vercel Connect:
 
-**If using Vercel AI Gateway (default):**
-```env
-# Slack Credentials (required - auto-detected by Chat SDK)
-SLACK_BOT_TOKEN=xoxb-paste-your-token-here
-SLACK_SIGNING_SECRET=paste-your-signing-secret-here
-
-# State Persistence (required for production)
-REDIS_URL=redis://default:password@host:port
-
-# No AI keys needed - Vercel AI Gateway handles this automatically!
-```
-
-**If using Direct Provider SDK:**
-```env
-# Slack Credentials (required - auto-detected by Chat SDK)
-SLACK_BOT_TOKEN=xoxb-paste-your-token-here
-SLACK_SIGNING_SECRET=paste-your-signing-secret-here
-
-# State Persistence (required for production)
-REDIS_URL=redis://default:password@host:port
-
-# AI Provider API Key (get from your provider's dashboard)
-# For OpenAI: https://platform.openai.com/api-keys
-# For Anthropic: https://console.anthropic.com/settings/keys
-# For Google: https://aistudio.google.com/apikey
-OPENAI_API_KEY=sk-your-key-here
-# or ANTHROPIC_API_KEY=sk-ant-your-key-here
-# or GOOGLE_GENERATIVE_AI_API_KEY=your-key-here
-```
-
-Also help them install the provider package if using a direct SDK:
 ```bash
-# For OpenAI
-pnpm add @ai-sdk/openai
+vercel link
+vercel env pull
+```
 
-# For Anthropic
-pnpm add @ai-sdk/anthropic
+**Note:** The pulled `VERCEL_OIDC_TOKEN` expires after ~12 hours. If local AI or Connect calls start failing with auth errors later, re-run `vercel env pull`.
 
-# For Google
-pnpm add @ai-sdk/google
+---
+
+## Step 3.2: Complete .env.local
+
+Add to `.env.local` based on the user's LLM choice from Step 1.3 and the connector UID from Phase 2:
+
+**If using Vercel AI Gateway via OIDC (default):**
+```env
+# Slack via Vercel Connect (no bot token or signing secret needed)
+SLACK_CONNECTOR=slack/my-agent
+
+# VERCEL_OIDC_TOKEN was written by `vercel env pull`
+
+# No AI keys needed - the AI Gateway authenticates via the OIDC token!
+```
+
+**If using Vercel AI Gateway with an API key:**
+```env
+# Slack via Vercel Connect
+SLACK_CONNECTOR=slack/my-agent
+
+# AI Gateway key (instead of OIDC)
+AI_GATEWAY_API_KEY=your-gateway-key
 ```
 
 **If No LLM needed:**
 ```env
-# Slack Credentials (required - auto-detected by Chat SDK)
-SLACK_BOT_TOKEN=xoxb-paste-your-token-here
-SLACK_SIGNING_SECRET=paste-your-signing-secret-here
-
-# State Persistence (required for production)
-REDIS_URL=redis://default:password@host:port
+# Slack via Vercel Connect
+SLACK_CONNECTOR=slack/my-agent
 ```
 
-Ask the user to paste their Bot Token and Signing Secret, then write the `.env` file.
-
-**Security:** Never display the full token values back to the user or in logs.
-
-**Note on REDIS_URL:** For local development, you can skip `REDIS_URL` and use an in-memory state adapter instead. Update `lib/bot.tsx`:
-```typescript
-import { createMemoryState } from "chat";
-
-export const bot = new Chat({
-  userName: "mybot",
-  adapters: { slack: createSlackAdapter() },
-  state: process.env.REDIS_URL
-    ? createRedisState()
-    : createMemoryState(),
-});
-```
+**Security:** Never display API keys or the OIDC token back to the user or in logs. `SLACK_CONNECTOR` is an identifier, not a secret.
 
 ---
 
-## Step 3.2: Verify .gitignore
+## Step 3.3: Verify .gitignore
 
 Ensure credentials won't be committed:
 
 ```bash
-# Check .gitignore includes .env
-grep -q "^\.env" .gitignore || echo ".env" >> .gitignore
+# Check .gitignore covers .env files (including .env.local)
+grep -q "^\.env" .gitignore || printf ".env\n.env*.local\n" >> .gitignore
 ```
 
 ---

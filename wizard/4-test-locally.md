@@ -1,200 +1,116 @@
-# Phase 4: Test Locally
+# Phase 4: Test the Agent Locally
 
-This phase guides the user through testing their Slack agent locally using ngrok.
+This phase guides the user through testing their agent locally with the `eve dev` TUI and the HTTP API.
+
+**Important:** the Slack surface **cannot** be tested locally. Slack events route through Vercel Connect, which forwards to deployments only — never to localhost. There is no tunneling step (no ngrok). Everything else — instructions, tools, skills, the conversation loop — works locally, and that's what this phase exercises. The Slack surface is tested in Phase 5 against the production deployment.
 
 ---
 
-## Step 4.0: Link to Vercel (Required for AI Gateway)
+## Step 4.0: Link to Vercel and Pull Environment
 
-Before testing locally, you must connect your project to Vercel. This enables the OIDC token that allows Vercel AI Gateway to work without API keys.
+Before testing locally, connect the project to Vercel. This provides the OIDC token that authenticates both **Vercel AI Gateway** (model calls without API keys) and **Vercel Connect** (the Slack connector SDK).
 
-**Create a Vercel project and link it:**
-
-1. **Create the Vercel project** (if not already done):
-   ```bash
-   vercel
-   ```
-   Follow the prompts to create a new project. You can cancel the deployment with Ctrl+C after the project is created.
-
-2. **Verify the link:**
+1. **Create/link the Vercel project** (if not already done):
    ```bash
    vercel link
    ```
    Confirm the project is linked (creates `.vercel/` directory).
 
-3. **Pull environment variables** (optional but recommended):
+2. **Pull environment variables:**
    ```bash
-   vercel env pull .env.local
+   vercel env pull
    ```
+   This fetches a short-lived dev token into `.env.local`, along with project env vars like `SLACK_CONNECTOR`.
 
 **Why this is required:**
 
-- Vercel AI Gateway uses OIDC tokens for authentication
-- Running `vercel link` connects your local project to the Vercel platform
-- This enables the `@ai-sdk/gateway` package to authenticate without API keys
-- Without this step, AI calls will fail with authentication errors
+- Vercel AI Gateway authenticates via the OIDC token — no `AI_GATEWAY_API_KEY` or provider keys needed
+- The `@vercel/connect` SDK authenticates with the same token
+- The pulled OIDC token expires after ~12 hours — if auth errors appear later, re-run `vercel env pull`
 
-**Note:** You'll complete the full deployment in Phase 5. This step just establishes the connection needed for local AI Gateway access.
+**Note:** You'll complete the full deployment in Phase 5. This step just establishes local access to the Gateway and Connect.
 
 ---
 
-## Step 4.1: Start the Dev Server
+## Step 4.1: Run the Agent in the Dev TUI
 
 ```bash
-pnpm dev
+npx eve dev
 ```
 
-### If using Chat SDK
-This starts the Next.js dev server on http://localhost:3000.
+This starts the HMR dev server with a terminal REPL/TUI. Tell the user:
 
-### If using Bolt for JavaScript
-This starts the Nitro server on http://localhost:3000.
-
----
-
-## Step 4.2: Expose with ngrok
-
-In a **separate terminal**, create a tunnel to expose your local server:
-
-```bash
-ngrok http 3000
-```
-
-Copy the HTTPS URL (e.g., `https://abc123.ngrok.io`).
-
-**Note:** If the user doesn't have ngrok installed:
-> Install ngrok from https://ngrok.com/download or run `brew install ngrok` on macOS.
-
----
-
-## Step 4.3: Update Slack App URL
-
-Ask the user for their ngrok URL:
-
-> **What's your ngrok URL?** (e.g., `https://abc123.ngrok.io`)
-
-Once they provide the URL, update the `manifest.json` file:
-
-1. Read the project's `manifest.json`
-2. Update these fields with the ngrok URL + the webhook path:
-   - `settings.event_subscriptions.request_url`
-   - `settings.interactivity.request_url`
-3. Write the updated `manifest.json`
-
-### If using Chat SDK
-The webhook path is `/api/webhooks/slack`:
-```
-https://abc123.ngrok.io/api/webhooks/slack
-```
-
-### If using Bolt for JavaScript
-The webhook path is `/api/slack/events`:
-```
-https://abc123.ngrok.io/api/slack/events
-```
-
-Then tell the user:
-
-> **Connect Slack to your local server:**
+> **Exercise your agent in the TUI:**
 >
-> 1. Go to your app at https://api.slack.com/apps
-> 2. Click on your app
-> 3. Go to **App Manifest** in the sidebar
-> 4. Switch to the **JSON** tab
-> 5. Replace the entire manifest with the content below
-> 6. Click **Save Changes**
-> 7. If prompted, click **Accept** to confirm the changes
+> 1. Send a message that matches your agent's purpose and confirm the instructions shape the reply
+> 2. Trigger each tool (e.g., ask a question that requires `get_weather`) and confirm it executes and returns sensible output
+> 3. If you added skills, send a request matching a skill's description and confirm it loads (watch for the `load_skill` call)
+> 4. Test any approval-gated tools — the gated call should pause and resume after approval
 
-Display the full updated `manifest.json` content for the user to copy.
+Useful variants:
+
+- `npx eve dev --no-ui` — run without the TUI (background/verification runs)
+- `/loglevel all` in the TUI, or `npx eve dev --logs all` — verbose logs when debugging
+- `npx eve dev https://your-app.vercel.app` — drive a **deployed** app interactively (used in Phase 5)
 
 ---
 
-## Step 4.4: Test the Bot
+## Step 4.2: (Optional) Exercise the HTTP API
+
+Every eve app serves the same stable HTTP API. With the dev server running, you can verify it directly:
+
+```bash
+# Create a session
+curl -X POST http://127.0.0.1:2000/eve/v1/session \
+  -H 'content-type: application/json' \
+  -d '{"message":"What is the weather in Brooklyn?"}'
+# → continuationToken in body, x-eve-session-id header
+
+# Stream the session (NDJSON, application/x-ndjson)
+curl http://127.0.0.1:2000/eve/v1/session/<sessionId>/stream
+
+# Send a follow-up
+curl -X POST http://127.0.0.1:2000/eve/v1/session/<sessionId> \
+  -H 'content-type: application/json' \
+  -d '{"continuationToken":"<token>","message":"Now do Queens."}'
+```
+
+Key stream events to look for: `session.started`, `actions.requested`, `action.result`, `message.completed`, `session.completed`.
+
+---
+
+## Step 4.3: Slack Testing Comes in Phase 5
 
 Tell the user:
 
-> **Test your agent:**
->
-> 1. Open your Slack workspace
-> 2. Invite the bot to a channel: `/invite @YourBotName`
-> 3. Mention the bot: `@YourBotName hello!`
-> 4. You should see the request in your terminal and get a response
+> **Local testing does not cover Slack.** Vercel Connect forwards Slack events (@mentions, DMs) to deployments only — localhost can never receive them. Once your agent behaves correctly in the TUI, deploy in Phase 5 and test the Slack surface there by inviting the bot and @mentioning it.
 
-Watch the terminal for any errors.
+Do **not** suggest ngrok or any tunneling tool — it does not apply to the Connect forwarding model.
 
 ---
 
 ## Troubleshooting
 
-### "url_verification" failed
-- Make sure your server is running
-- Check the URL is correct:
-  - **Chat SDK:** includes `/api/webhooks/slack`
-  - **Bolt:** includes `/api/slack/events`
-- Verify ngrok tunnel is active
-
-### "invalid_auth" error
-- Check SLACK_BOT_TOKEN is correct
-- Make sure it starts with `xoxb-`
-- Try reinstalling the app in Slack
-
-### "invalid_signature" error
-- Check SLACK_SIGNING_SECRET is correct
-- Make sure there's no extra whitespace
-
-### Bot doesn't respond
-- Check terminal/Vercel logs for errors
-- Verify bot is invited to the channel
-- Make sure Event Subscriptions URL is verified
-
 ### AI Gateway not working / Authentication errors
 - Run `vercel link` to connect your project to Vercel
 - Ensure `.vercel/` directory exists in your project root
-- Try `vercel env pull .env.local` to sync environment
-- If still failing, you may need to deploy once (`vercel`) then test locally
+- Run `vercel env pull` to refresh `.env.local` — the local OIDC token expires after ~12 hours
 
-### "dispatch_failed" error (500) — Bolt only
-This is caused by H3's `toWebRequest()` consuming the request body stream before signature verification.
+### Agent doesn't respond in the TUI
+- Restart with verbose logs: `npx eve dev --logs all` (or `/loglevel all` in the TUI)
+- Check for model-credential errors in the log output
+- Confirm Node 24+ is in use (`node --version`)
 
-**Fix:** Update `server/api/slack/events.post.ts` to buffer the body manually:
-```typescript
-import { defineEventHandler, getRequestURL, readRawBody } from "h3";
-
-export default defineEventHandler(async (event) => {
-  const rawBody = await readRawBody(event, "utf8");
-  const request = new Request(getRequestURL(event), {
-    method: event.method,
-    headers: event.headers,
-    body: rawBody,
-  });
-  return await handler(request);
-});
-```
-
-See SKILL.md "Implementation Gotchas" section for the complete pattern.
-
-### "operation_timeout" error on slash commands — Bolt only
-This happens when your command handler takes longer than 3 seconds. Even with `await ack()`, the HTTP response is blocked until your entire handler function completes.
-
-**Fix:** Use fire-and-forget pattern:
-1. Call `await ack()` immediately
-2. Start async work **WITHOUT awaiting**: `processAsync().catch(logger.error)`
-3. Use `command.response_url` to post results asynchronously
-
-```typescript
-app.command('/mycommand', async ({ ack, command, logger }) => {
-  await ack();  // Must be first
-
-  // Fire-and-forget - DON'T await
-  processInBackground(command.response_url, command.text)
-    .catch((error) => logger.error("Failed:", error));
-});
-```
-
-See SKILL.md "Implementation Gotchas" section for the complete pattern.
+### Tool not being called
+- The filename is the tool name the model sees (`agent/tools/get_weather.ts` → `get_weather`) — confirm it's snake_case ASCII and the `description` clearly says when to use it
+- Confirm the tool exports a `defineTool` default and has an `inputSchema` (required even if empty)
 
 ---
 
+## Context to Store
+
+- **Local test result** — confirmation the agent, tools, and skills behave as planned (referenced when verifying production in Phase 5)
+
 ## Next Phase
 
-Once local testing is successful, proceed to [Phase 5: Deploy to Production](./5-deploy-production.md).
+Once the agent behaves correctly locally, proceed to [Phase 5: Deploy to Production](./5-deploy-production.md) — that's where the Slack surface gets tested.

@@ -1,217 +1,149 @@
 # Environment Variables Reference
 
-Complete reference for all environment variables used in Slack agent projects.
+Complete reference for all environment variables used in eve Slack agent projects.
+
+With eve + Vercel Connect, the variable surface is deliberately small: there is **no `SLACK_BOT_TOKEN` and no `SLACK_SIGNING_SECRET`**. Slack credentials are brokered at runtime by Vercel Connect — your code requests short-lived, scoped tokens instead of storing long-lived secrets, and the channel's `webhookVerifier` confirms forwarded events came from Connect instead of checking Slack's signing secret.
 
 ## Required Variables
 
-### SLACK_BOT_TOKEN
+### SLACK_CONNECTOR
 
-**Description:** OAuth token for authenticating Slack API calls. Auto-detected by `@chat-adapter/slack` (Chat SDK) or used with `new App({ token })` (Bolt).
-
-**Source:**
-1. Go to https://api.slack.com/apps
-2. Select your app
-3. Navigate to **Install App**
-4. Copy **Bot User OAuth Token**
-
-**Format:** `xoxb-XXXXXXXXX-XXXXXXXXX-XXXXXXXXXXXXXXXXXXXXXXXX`
-
-**Security:**
-- Never commit to version control
-- Rotate if compromised
-- Use different tokens for dev/prod
-
----
-
-### SLACK_SIGNING_SECRET
-
-**Description:** Secret used to verify requests originate from Slack. Auto-detected by `@chat-adapter/slack` (Chat SDK) or `@vercel/slack-bolt` (Bolt).
+**Description:** The UID of your Vercel Connect Slack connector. This is the only Slack-related environment variable. `connectSlackCredentials` uses it to resolve short-lived bot tokens at runtime and to verify forwarded Slack events.
 
 **Source:**
-1. Go to https://api.slack.com/apps
-2. Select your app
-3. Navigate to **Basic Information**
-4. Find **Signing Secret** under App Credentials
+1. Create the connector: `vercel connect create slack --triggers`
+2. The UID is shown in the output (also visible via `vercel connect list` or the dashboard Connect page)
 
-**Format:** 32-character hexadecimal string
-
-**Usage:** Automatically used by the Chat SDK Slack adapter or `@vercel/slack-bolt` VercelReceiver to verify request signatures.
-
-**Security:**
-- Never commit to version control
-- Rotate if compromised
-- Each Slack app has a unique secret
-
----
-
-### REDIS_URL (Chat SDK only)
-
-**Description:** Redis connection URL for the Chat SDK state adapter (`@chat-adapter/state-redis`). **Not required for Bolt projects** unless you add Redis manually.
-
-**Source:**
-- [Upstash Redis](https://upstash.com) (recommended for serverless)
-- Any Redis-compatible provider
-
-**Format:** `redis://default:PASSWORD@HOST:PORT` or `rediss://...` for TLS
+**Format:** `slack/<connector-name>` (e.g., `slack/my-agent`) or a connector ID like `scl_abc123`
 
 **Usage:**
 ```typescript
-import { createRedisState } from "@chat-adapter/state-redis";
+// agent/channels/slack.ts
+import { connectSlackCredentials } from "@vercel/connect/eve";
+import { slackChannel } from "eve/channels/slack";
 
-const state = createRedisState(); // Reads REDIS_URL automatically
+export default slackChannel({
+  credentials: connectSlackCredentials(
+    process.env.SLACK_CONNECTOR ?? "slack/my-agent"
+  ),
+});
 ```
 
-**Note:** For local development, you can use an in-memory state adapter instead:
-```typescript
-import { createMemoryState } from "chat";
+**Notes:**
+- Not a secret — it identifies the connector; access is governed by the connector-project link and the deployment's OIDC token
+- The connector must be **attached to your project and environment** (`vercel connect attach <uid> --triggers --trigger-path /eve/v1/slack`)
+- If you deployed via the eve Slack starter's Deploy button, the connector was provisioned and `SLACK_CONNECTOR` was set automatically
+- Use a separate connector per environment (see Security Best Practices)
 
-const state = createMemoryState();
+---
+
+### VERCEL_OIDC_TOKEN (local development only)
+
+**Description:** Short-lived OIDC token that authenticates your local process to Vercel services — the AI Gateway and Vercel Connect both accept it. On Vercel deployments this token is injected automatically; you never set it there.
+
+**Source:**
+```bash
+vercel link       # once, to link the directory to your Vercel project
+vercel env pull   # writes VERCEL_OIDC_TOKEN into .env.local
 ```
+
+**Format:** JWT string
+
+**Notes:**
+- Expires after **~12 hours** — re-run `vercel env pull` when local AI or Connect calls start failing with auth errors
+- Never set this manually or copy it between machines; always pull a fresh one
 
 ---
 
 ## AI Integration
 
-You have two options for AI/LLM integration:
+You have two options for AI/LLM credentials. eve routes string model IDs (e.g., `anthropic/claude-sonnet-5`) through the Vercel AI Gateway by default.
 
-### Option 1: Vercel AI Gateway (Recommended)
+### Option 1: Vercel AI Gateway with project OIDC (recommended)
 
-When deployed on Vercel, the AI Gateway handles authentication automatically. **No API keys needed!**
+When deployed on Vercel, the AI Gateway authenticates with the project's OIDC token automatically. **No API keys needed.**
 
-**For local development with AI Gateway:**
+**For local development:** link the project and pull the OIDC token:
 
-To use AI Gateway locally (without API keys), you must link your project to Vercel:
-
-1. Create a Vercel project: `vercel`
-2. Link the project: `vercel link`
-3. The OIDC token will now work locally
-
-Without `vercel link`, you'll get authentication errors when using `@ai-sdk/gateway`.
+```bash
+vercel link
+vercel env pull   # fetches VERCEL_OIDC_TOKEN into .env.local (~12h expiry)
+```
 
 ```typescript
-import { generateText } from "ai";
-import { gateway } from "@ai-sdk/gateway";
+// agent/agent.ts
+import { defineAgent } from "eve";
 
-const result = await generateText({
-  model: gateway("openai/gpt-4o-mini"),  // No API key needed!
-  prompt: "Hello world",
+export default defineAgent({
+  model: "anthropic/claude-sonnet-5", // routes through AI Gateway — no API key
 });
 ```
 
 **Benefits:**
-- Zero configuration for API keys
-- Access to multiple providers (OpenAI, Anthropic, Google, etc.)
+- Zero API-key management
+- Access to multiple providers (Anthropic, OpenAI, Google, etc.) through one interface
 - Built-in rate limiting and observability
 - Works automatically on Vercel deployments
 
 ---
 
-### Option 2: Direct Provider SDK
+### Option 2: AI_GATEWAY_API_KEY
 
-If you prefer direct integration with a specific provider, you'll need to manage API keys yourself.
+**Description:** API key for the Vercel AI Gateway. Use this instead of OIDC when running outside Vercel (external CI, other hosts) or if you prefer a long-lived credential locally.
 
-#### OPENAI_API_KEY
+**Source:** Vercel dashboard > AI Gateway > API Keys
 
-**Description:** API key for direct OpenAI integration.
-
-**Source:**
-1. Go to https://platform.openai.com/api-keys
-2. Create a new API key
-3. Copy the key (starts with `sk-`)
-
-**Setup:**
-```bash
-pnpm add @ai-sdk/openai
-```
-
-**Usage:**
-```typescript
-import { generateText } from "ai";
-import { openai } from "@ai-sdk/openai";
-
-const result = await generateText({
-  model: openai("gpt-4o-mini"),
-  prompt: "Hello world",
-});
-```
+**Usage:** Same code as Option 1 — the gateway picks up `AI_GATEWAY_API_KEY` from the environment. String model IDs in `defineAgent` keep working unchanged.
 
 ---
 
-#### ANTHROPIC_API_KEY
+## Route Auth Secrets
 
-**Description:** API key for direct Anthropic integration.
+eve exposes a stable HTTP API (`/eve/v1/...`) on every deployment. The scaffolded `placeholderAuth()` fails closed in production — you must replace it with a real auth strategy, and each strategy has its own secret material.
 
-**Source:**
-1. Go to https://console.anthropic.com/settings/keys
-2. Create a new API key
-3. Copy the key (starts with `sk-ant-`)
+### ROUTE_AUTH_BASIC_PASSWORD
 
-**Setup:**
+**Description:** Password for the `httpBasic()` route-auth strategy — the simplest way to protect eve's HTTP API.
+
+**Source:** Generate a strong random value yourself, e.g.:
 ```bash
-pnpm add @ai-sdk/anthropic
+openssl rand -base64 32
 ```
 
-**Usage:**
-```typescript
-import { generateText } from "ai";
-import { anthropic } from "@ai-sdk/anthropic";
+**Security:**
+- Never commit to version control
+- Use a different password per environment
+- Rotate if compromised
 
-const result = await generateText({
-  model: anthropic("claude-sonnet-4-20250514"),
-  prompt: "Hello world",
-});
-```
+### JWT / OIDC key material
+
+**Description:** If you protect eve's HTTP API with `jwtHmac()`, `jwtEcdsa()`, `oidc()`, or a custom `AuthFn` instead of basic auth, store the corresponding secret (HMAC shared secret, ECDSA public key, or OIDC issuer configuration) as environment variables. `vercelOidc()` needs no extra secret — it verifies Vercel-issued OIDC tokens.
+
+**Security:** Same rules as any secret — never commit, per-environment values, rotate on exposure. Note that the Slack channel is not affected by route auth choice: forwarded Slack events are verified via Vercel OIDC by Connect's webhook verifier.
 
 ---
 
-#### GOOGLE_GENERATIVE_AI_API_KEY
+## Deployment Variables
 
-**Description:** API key for direct Google AI integration.
+### VERCEL_AUTOMATION_BYPASS_SECRET
 
-**Source:**
-1. Go to https://aistudio.google.com/apikey
-2. Create a new API key
-3. Copy the key
+**Description:** Bypass secret for Vercel Deployment Protection. Needed when your **preview deployments are protected** and something outside the browser (e.g., `eve dev https://<preview-url>` from your machine, or external smoke tests) must reach the deployment.
 
-**Setup:**
-```bash
-pnpm add @ai-sdk/google
-```
+**Source:** Vercel dashboard > Project Settings > Deployment Protection > Protection Bypass for Automation
 
-**Usage:**
-```typescript
-import { generateText } from "ai";
-import { google } from "@ai-sdk/google";
-
-const result = await generateText({
-  model: google("gemini-2.0-flash"),
-  prompt: "Hello world",
-});
-```
-
----
-
-## Development-Only Variables
-
-### NGROK_AUTH_TOKEN
-
-**Description:** Authentication token for ngrok tunneling service.
-
-**Source:**
-1. Go to https://dashboard.ngrok.com
-2. Sign up or log in
-3. Navigate to **Your Authtoken**
-4. Copy the token
-
-**Format:** Alphanumeric string
-
-**Usage:** Used for local development tunneling.
-
-**Note:** Not needed in production deployments.
+**Usage:** Set it locally (e.g., in `.env.local`) when driving a protected preview deployment. Not needed for production if production is publicly reachable.
 
 ---
 
 ## Optional Variables
+
+### CRON_SECRET
+
+**Description:** Shared secret to authenticate Vercel Cron invocations of your own scheduled endpoints, so random visitors can't trigger cron routes. (eve's built-in schedules don't need this; it applies to any custom cron routes you add.)
+
+**Source:** Generate a strong random value and set it in Vercel; Vercel sends it as `Authorization: Bearer <CRON_SECRET>` on cron requests.
+
+---
 
 ### NODE_ENV
 
@@ -242,54 +174,44 @@ const result = await generateText({
 
 ## Local Development Setup
 
-Create a `.env` file in your project root.
+Create a `.env.local` file in your project root. Prefer `vercel env pull`, which writes it for you (including `VERCEL_OIDC_TOKEN`), then add anything project-specific.
 
-### If using Chat SDK (with Vercel AI Gateway)
+> **Note:** Slack events can't be received locally — Connect forwards them to deployments only. Locally you develop against the eve TUI (`npx eve dev`); Slack is tested on preview/production deployments.
+
+### Option 1: AI Gateway with project OIDC (default)
 
 ```env
-# Required - Slack credentials (auto-detected by Chat SDK)
-SLACK_BOT_TOKEN=xoxb-your-token-here
-SLACK_SIGNING_SECRET=your-signing-secret
+# Slack via Vercel Connect (no bot token or signing secret needed)
+SLACK_CONNECTOR=slack/my-agent
 
-# Required - State persistence
-REDIS_URL=redis://default:password@host:port
+# Pulled by `vercel env pull` — expires after ~12 hours, re-pull when it does
+VERCEL_OIDC_TOKEN=eyJ...
 
-# Development tunnel
-NGROK_AUTH_TOKEN=your-ngrok-token
+# Route auth for eve's HTTP API (if using httpBasic())
+ROUTE_AUTH_BASIC_PASSWORD=your-strong-password
 
 # Optional
 NODE_ENV=development
 LOG_LEVEL=debug
 
-# No AI keys needed - Vercel AI Gateway handles this automatically!
+# No AI keys needed - the AI Gateway authenticates via the OIDC token!
 ```
 
-### If using Bolt for JavaScript (with Vercel AI Gateway)
+### Option 2: AI Gateway with an API key
 
 ```env
-# Required - Slack credentials
-SLACK_BOT_TOKEN=xoxb-your-token-here
-SLACK_SIGNING_SECRET=your-signing-secret
+# Slack via Vercel Connect
+SLACK_CONNECTOR=slack/my-agent
 
-# Development tunnel
-NGROK_AUTH_TOKEN=your-ngrok-token
+# AI Gateway key (instead of OIDC)
+AI_GATEWAY_API_KEY=your-gateway-key
+
+# Route auth for eve's HTTP API
+ROUTE_AUTH_BASIC_PASSWORD=your-strong-password
 
 # Optional
 NODE_ENV=development
 LOG_LEVEL=debug
-
-# No AI keys needed - Vercel AI Gateway handles this automatically!
-# No REDIS_URL needed unless you add Redis manually
-```
-
-### Using Direct Provider SDK (either framework)
-
-Add your provider's API key:
-```env
-# AI Provider API Key (choose one based on your provider)
-OPENAI_API_KEY=sk-your-openai-key
-# ANTHROPIC_API_KEY=sk-ant-your-anthropic-key
-# GOOGLE_GENERATIVE_AI_API_KEY=your-google-key
 ```
 
 ## Security Best Practices
@@ -305,33 +227,33 @@ Ensure `.gitignore` includes:
 
 ### 2. Use Different Credentials Per Environment
 
-| Environment | Slack App | Tokens |
-|-------------|-----------|--------|
-| Development | Dev App | Dev tokens |
-| Staging | Staging App | Staging tokens |
-| Production | Prod App | Prod tokens |
+| Environment | Connector | Other secrets |
+|-------------|-----------|---------------|
+| Development | `slack/my-agent-dev` | Dev route-auth password |
+| Preview | `slack/my-agent-preview` | Preview route-auth password |
+| Production | `slack/my-agent` | Prod route-auth password |
 
-### 3. Rotate Compromised Credentials
+**One connector per environment.** Separate connectors give you separate grants, scopes, and audit trails, and prevent cross-environment token replay. Attach each with the matching `--environment` flag.
 
-If a secret is exposed:
+### 3. Never Persist Tokens
 
-**For Slack tokens:**
-1. Go to app settings > **Install App**
-2. Click **Reinstall App**
-3. Update all environment variables
+Connect exists so you don't store provider tokens. Request them at runtime — the SDK caches in-process and auto-refreshes near expiry, so per-request calls are fine. Never write a Connect-issued token to a database, log, env var, or file.
 
-**For Signing Secret:**
-1. Go to **Basic Information**
-2. Click **Regenerate** under Signing Secret
-3. Update all environment variables
+### 4. Request Minimum Scopes
 
-### 4. Limit Token Scopes
+Only grant the connector the bot scopes your agent needs, and request minimum scopes per token. Review scopes on the connector's Connect page.
 
-Only request the OAuth scopes your app needs. Review scopes in your `manifest.json`.
+### 5. Rotate Compromised Credentials
 
-### 5. Monitor Usage
+Connect-issued Slack tokens are short-lived, so exposure windows are small — but if other secrets leak:
 
-- Check Slack app analytics for unusual activity
+**Route-auth password / JWT secrets:** generate a new value, update the Vercel env var, redeploy.
+
+**Automation bypass secret:** regenerate it under Project Settings > Deployment Protection.
+
+### 6. Monitor Usage
+
+- Every Connect authorization and token request is recorded — review the audit log on the connector's page
 - Monitor Vercel function logs for errors
 - Set up alerts for anomalies
 
@@ -356,27 +278,31 @@ vercel env add VARIABLE_NAME production
 |-------|-----------|
 | Production | `vercel --prod` deployments |
 | Preview | Pull request deployments |
-| Development | `vercel dev` local server |
+| Development | `vercel env pull` / local development |
 
 ### Sensitive vs Non-Sensitive
 
 Mark variables as **Sensitive** for:
-- API keys
-- Tokens
-- Secrets
+- API keys (`AI_GATEWAY_API_KEY`)
+- Route-auth passwords and JWT secrets
+- `VERCEL_AUTOMATION_BYPASS_SECRET`, `CRON_SECRET`
 
 Sensitive variables:
 - Are encrypted at rest
 - Don't appear in logs
 - Can't be read via API
 
+`SLACK_CONNECTOR` is an identifier, not a secret — it doesn't need the sensitive flag.
+
 ## Accessing Variables
 
 ### In Server Code
 
+eve tools run in your app runtime with full `process.env` access:
+
 ```typescript
 // Direct access
-const token = process.env.SLACK_BOT_TOKEN;
+const connector = process.env.SLACK_CONNECTOR;
 
 // With validation
 function getRequiredEnv(name: string): string {
@@ -387,40 +313,7 @@ function getRequiredEnv(name: string): string {
   return value;
 }
 
-const token = getRequiredEnv('SLACK_BOT_TOKEN');
-```
-
-### In Framework Config
-
-#### If using Chat SDK (Next.js)
-
-```typescript
-// next.config.ts
-import type { NextConfig } from "next";
-
-const nextConfig: NextConfig = {
-  // Environment variables are available via process.env in server components and API routes
-};
-
-export default nextConfig;
-```
-
-#### If using Bolt for JavaScript (Nitro)
-
-```typescript
-// nitro.config.ts
-export default defineNitroConfig({
-  runtimeConfig: {
-    slackBotToken: process.env.SLACK_BOT_TOKEN,
-    slackSigningSecret: process.env.SLACK_SIGNING_SECRET,
-  },
-});
-```
-
-```typescript
-// Access via useRuntimeConfig()
-const config = useRuntimeConfig();
-const token = config.slackBotToken;
+const connector = getRequiredEnv('SLACK_CONNECTOR');
 ```
 
 ## Troubleshooting
@@ -431,25 +324,25 @@ const token = config.slackBotToken;
 
 **Solutions:**
 1. Check variable name spelling (case-sensitive)
-2. Verify `.env` file is in project root
-3. Restart dev server after changes
+2. Verify `.env.local` is in project root
+3. Restart the dev server after changes
 4. Redeploy after adding to Vercel
 
-### Invalid Token Errors
+### Connect / Gateway Auth Errors Locally
 
-**Symptoms:** `invalid_auth`, `token_revoked`
-
-**Solutions:**
-1. Verify token is complete (no truncation)
-2. Check for extra whitespace
-3. Confirm token matches the workspace
-4. Regenerate if expired/revoked
-
-### Signature Verification Failed
-
-**Symptoms:** `invalid_signature` errors
+**Symptoms:** authentication errors from the AI Gateway or `@vercel/connect` during local development that previously worked
 
 **Solutions:**
-1. Verify signing secret is correct
-2. Check for request timestamp issues
-3. Ensure secret matches the Slack app
+1. The local `VERCEL_OIDC_TOKEN` expires after ~12 hours — re-run `vercel env pull`
+2. Verify the directory is linked to the right project (`vercel link`)
+3. If running outside Vercel entirely (external CI), use `AI_GATEWAY_API_KEY` for the gateway and pass a Vercel access token to the Connect SDK
+
+### Connector Not Working
+
+**Symptoms:** token requests fail in a deployment; Slack events never arrive
+
+**Solutions:**
+1. Confirm the connector is **attached to this project and environment**: `vercel connect list`, or re-attach with `vercel connect attach <uid> --triggers --trigger-path /eve/v1/slack`
+2. Connect verifies the deployment's project/environment against connector links — a connector attached only to production won't issue tokens to preview
+3. For missing events, confirm the connector was created with `--triggers` (without it, `app_mention` / `message.im` never arrive) and that the trigger path is `/eve/v1/slack`
+4. Remember trigger forwarding goes to deployments only — Slack can't be tested against localhost

@@ -1,6 +1,6 @@
 # Agent Archetypes Reference
 
-This document provides common patterns and archetypes for Slack agents. Use this as a reference when generating custom implementation plans based on user requirements.
+This document provides common patterns and archetypes for Slack agents built with eve. Use this as a reference when generating custom implementation plans based on user requirements.
 
 ## Implementation Plan Template
 
@@ -17,68 +17,74 @@ When generating a plan, use this structure:
 2. **[Feature 2]** - [Description]
 3. **[Feature 3]** - [Description]
 
-### Slash Commands
-| Command | Description | Example |
-|---------|-------------|---------|
-| `/command` | What it does | `/command arg` |
+### Interactions (@mentions and DMs)
+eve's Slack channel is mention/DM-driven — there are no slash commands.
+Users talk to the agent in natural language; the model routes to tools.
 
-### Event Handlers
+| Phrasing | What it does | Example |
+|----------|--------------|---------|
+| `@agent [request]` | What happens | `@agent do the thing for X` |
 
-**If using Chat SDK:**
-- [ ] `bot.onNewMention` - [What happens when @mentioned]
-- [ ] `bot.onSubscribedMessage` - [Follow-up message handling]
-- [ ] `bot.onReaction` - [If applicable]
-- [ ] `bot.onSlashCommand` - [Slash command handling]
+### Dispatch Hooks & Events
+Configured on the Slack channel in `agent/channels/slack.ts`:
 
-**If using Bolt for JavaScript:**
-- [ ] `app.event('app_mention')` - [What happens when @mentioned]
-- [ ] `app.message()` - [Follow-up message handling]
-- [ ] `app.command()` - [Slash command handling]
-- [ ] `app.action()` - [Button/interactive handling]
+- [ ] `onAppMention(ctx, message)` - [What happens when @mentioned; default derives workspace-scoped auth and posts "Thinking…"]
+- [ ] `onDirectMessage(ctx, message)` - [DM handling; needs `im:history` scope]
+- [ ] `onInteraction(action, ctx)` - [`block_actions` not consumed by HITL]
+- [ ] `threadContext` - [`"thread-root"`, `"last-agent-reply"`, or a predicate, if thread history matters]
+- [ ] Custom `events` handlers (e.g. `"message.completed"`) - [If delivery needs customizing]
 
 ### AI Tools (if using AI)
+One file per tool in `agent/tools/` — the snake_case filename is the tool name.
+
+Tools **fetch data and perform actions**. Never plan a tool that wraps an LLM call (summarize, parse, classify, draft) — the agent is the language model and does that work itself, guided by `instructions.md` or a skill.
+
 | Tool | Purpose | Parameters |
 |------|---------|------------|
-| `toolName` | What it does | `param1`, `param2` |
+| `tool_name` | What it does | `param1`, `param2` |
 
-### Scheduled Jobs (if applicable)
+### Connections (if external APIs)
+For third-party services (Linear, GitHub, Notion, ...), use Vercel Connect:
+- MCP servers: `defineMcpClientConnection` with `auth: connect("provider/my-agent")` from `@vercel/connect/eve`
+- Authored tools: `const auth = connect("provider/my-agent")` then `await ctx.getToken(auth)` inside `execute`
+
+| Connection | Provider | Scope |
+|------------|----------|-------|
+| `provider` | What it accesses | `user` (per-user consent) or `app` |
+
+### Schedules (if applicable)
+Proactive/cron behavior uses eve schedules, which start sessions with
+`receive(slack, { message, target: { channelId }, auth })`.
+
 | Schedule | Action |
 |----------|--------|
 | `0 9 * * 1-5` | Description |
 
-### State Management
+### Durability & State
 - [ ] Stateless (simple request/response)
-- [ ] **Chat SDK:** `@chat-adapter/state-redis` for thread-level persistence
-- [ ] **Bolt:** Vercel Workflow for durable multi-turn state
-- [ ] Database (persistent storage)
-  - Upstash Redis for Chat SDK state adapter or general caching
+- [ ] Durable sessions (default) - eve persists every session via the Workflow SDK; multi-turn context, tool results, and parked HITL/auth prompts survive restarts with no extra config. No Redis required.
+- [ ] Database (persistent storage, beyond session lifetime)
+  - Upstash Redis for caching or cross-session lookups
   - Vercel Blob for file/document storage
   - AWS Aurora via Vercel Marketplace for relational data
   - NOTE: Do NOT recommend Vercel KV (deprecated)
 
-### UI Components
-**Chat SDK:** JSX components (`<Card>`, `<Button>`, `<Modal>`)
-**Bolt:** Block Kit JSON
-
-- [ ] Cards / rich messages
-- [ ] Modal dialogs
-- [ ] Home tab
+### Delivery
+eve's Slack channel handles rendering — no custom Block Kit:
+- [ ] Typing lifecycle - "Thinking…" on inbound, "Working…" on `turn.started`, reasoning snippets and action labels as the turn progresses (automatic)
+- [ ] mrkdwn text replies - Default message delivery in-thread
+- [ ] HITL buttons - Approval-gated tools (`approval` from `eve/tools/approval`) render as Slack buttons/selects; responses resume the parked session
+- [ ] `toModelOutput` - Show the model a compact projection while channels receive the full tool output for rich rendering
 
 ### Files to Create/Modify
-
-**If using Chat SDK:**
-- `lib/bot.tsx` - Bot instance and event handlers
-- `lib/tools/[tool].ts` - AI tool definitions
-- `app/api/webhooks/[platform]/route.ts` - Webhook route
-- `app/api/cron/[job]/route.ts` - Cron endpoints (if applicable)
-
-**If using Bolt for JavaScript:**
-- `server/bolt/app.ts` - Bolt app instance
-- `server/listeners/events/[event].ts` - Event handlers
-- `server/listeners/commands/[command].ts` - Slash command handlers
-- `server/lib/ai/tools.ts` - AI tool definitions
-- `server/api/slack/events.post.ts` - Events endpoint
-- `server/api/cron/[job].get.ts` - Cron endpoints (if applicable)
+- `agent/instructions.md` - Always-on system prompt
+- `agent/agent.ts` - Runtime config (`defineAgent`)
+- `agent/channels/slack.ts` - Slack channel + dispatch hooks
+- `agent/tools/[tool_name].ts` - AI tool definitions (`defineTool`)
+- `agent/skills/[skill].md` - Load-on-demand instructions (if applicable)
+- `agent/connections/[provider].ts` - Vercel Connect connections (if applicable)
+- `agent/hooks/` - Runtime stream event subscribers (if applicable)
+- Schedule definitions - Proactive/cron sessions (if applicable)
 ```
 
 ---
@@ -104,57 +110,53 @@ A bot that collects daily standup updates from team members and posts a summary 
 ### Core Features
 1. **Scheduled Prompts** - DM team members at 9 AM asking for their update
 2. **Response Collection** - Accept free-form or structured responses
-3. **Summary Generation** - AI-generated summary of all responses
+3. **Summary Generation** - the agent fetches the day's responses and writes the summary itself
 4. **Status Tracking** - Track who has/hasn't responded
 
-### Slash Commands
-| Command | Description | Example |
-|---------|-------------|---------|
-| `/standup` | Submit your standup update manually | `/standup Working on API integration` |
-| `/standup-status` | Check who has submitted today | `/standup-status` |
-| `/standup-configure` | Configure standup time/channel | `/standup-configure #team 9:00` |
+### Interactions (@mentions and DMs)
+| Phrasing | What it does | Example |
+|----------|--------------|---------|
+| DM the bot your update | Submit your standup update | `Working on API integration today, no blockers` |
+| `@agent who's submitted?` | Check who has submitted today | `@agent standup status?` |
+| `@agent configure standup` | Change standup time/channel | `@agent post the summary in #team at 10am` |
 
-### Event Handlers
-- [x] `onSubscribedMessage` - Collect standup responses in DM threads
-- [x] `onNewMention` - Answer questions about standup status
+### Dispatch Hooks & Events
+- [x] `onDirectMessage` - Collect standup responses in DMs
+- [x] `onAppMention` - Answer questions about standup status, handle configuration
+- [x] `threadContext: { since: "last-agent-reply" }` - Follow-ups in prompt threads
 
 ### AI Tools
 | Tool | Purpose | Parameters |
 |------|---------|------------|
-| `summarize_standups` | Generate summary of all responses | `responses[]` |
-| `parse_update` | Extract blockers/accomplishments | `updateText` |
+| `standup_collect` | Record a member's update | `userId`, `updateText` |
+| `standup_get_responses` | Fetch all responses for a date (the agent writes the summary) | `date` |
+| `standup_status` | List who has/hasn't responded | `date` |
+| `standup_configure` | Update time/channel settings | `channelId`, `time` |
 
-### Scheduled Jobs
+### Schedules
 | Schedule | Action |
 |----------|--------|
-| `0 9 * * 1-5` | Send standup prompts to all team members |
-| `0 10 * * 1-5` | Post summary to configured channel |
+| `0 9 * * 1-5` | `receive(slack, ...)` targeting each member's DM with the standup prompt |
+| `0 10 * * 1-5` | `receive(slack, ...)` targeting the team channel to post the summary |
 
-### State Management
-- [x] Chat SDK state - Track daily responses per thread
-- [x] Database (persistent storage) - Track configuration, history
+### Durability & State
+- [x] Durable sessions - Each prompt thread stays resumable all morning
+- [x] Database (persistent storage) - Daily responses, configuration, history
 
-### UI Components (JSX)
-- [x] `<Card>` with `<Button>` - Quick response buttons
-- [x] `<Modal>` - Configuration modal
+### Delivery
+- [x] mrkdwn summaries posted to the configured channel
+- [x] Typing lifecycle (automatic)
 
-### Files to Create/Modify (Chat SDK)
-- `lib/bot.tsx` - Bot instance, mention/message handlers
-- `lib/tools/summarize-standups.ts`
-- `lib/standup/scheduler.ts`
-- `lib/standup/storage.ts`
-- `app/api/webhooks/[platform]/route.ts`
-- `app/api/cron/standup-prompt/route.ts`
-- `app/api/cron/standup-summary/route.ts`
-
-### Files to Create/Modify (Bolt)
-- `server/bolt/app.ts` - Bolt app instance
-- `server/listeners/events/app-mention.ts`
-- `server/listeners/commands/standup.ts`
-- `server/lib/ai/tools.ts`
-- `server/api/slack/events.post.ts`
-- `server/api/cron/standup-prompt.get.ts`
-- `server/api/cron/standup-summary.get.ts`
+### Files to Create/Modify
+- `agent/instructions.md` - Standup persona and rules
+- `agent/agent.ts`
+- `agent/channels/slack.ts` - Mention/DM hooks, thread context
+- `agent/tools/standup_collect.ts`
+- `agent/tools/standup_get_responses.ts`
+- `agent/tools/standup_status.ts`
+- `agent/tools/standup_configure.ts`
+- `lib/standup/storage.ts` - Response/config persistence
+- Schedule definitions for the 9 AM prompt and 10 AM summary
 ```
 
 ---
@@ -183,16 +185,18 @@ An AI-powered support bot that answers questions, creates tickets, and escalates
 3. **Escalation** - Route complex issues to human agents
 4. **Status Tracking** - Check and update ticket status
 
-### Slash Commands
-| Command | Description | Example |
-|---------|-------------|---------|
-| `/support` | Ask a support question | `/support How do I reset my password?` |
-| `/ticket` | Create a support ticket | `/ticket Login not working on mobile` |
-| `/ticket-status` | Check ticket status | `/ticket-status #1234` |
+### Interactions (@mentions and DMs)
+| Phrasing | What it does | Example |
+|----------|--------------|---------|
+| `@agent [question]` | Ask a support question | `@agent how do I reset my password?` |
+| `@agent file a ticket` | Create a support ticket | `@agent file a ticket: login broken on mobile` |
+| `@agent status of [ticket]` | Check ticket status | `@agent what's the status of TICK-1234?` |
+| DM the bot | Private multi-turn support conversation | `My deploy keeps failing...` |
 
-### Event Handlers
-- [x] `onNewMention` - Answer support questions in channels
-- [x] `onSubscribedMessage` - Multi-turn support conversations
+### Dispatch Hooks & Events
+- [x] `onAppMention` - Answer support questions in channels
+- [x] `onDirectMessage` - Private support conversations
+- [x] `threadContext: { since: "thread-root" }` - Full thread context for triage
 
 ### AI Tools
 | Tool | Purpose | Parameters |
@@ -202,25 +206,30 @@ An AI-powered support bot that answers questions, creates tickets, and escalates
 | `get_ticket_status` | Check ticket status | `ticketId` |
 | `escalate_to_human` | Route to human agent | `ticketId`, `reason` |
 
-### State Management
-- [x] Chat SDK state - Multi-turn conversation history
-- [x] Database (persistent storage) - Ticket tracking
+### Connections
+| Connection | Provider | Scope |
+|------------|----------|-------|
+| `linear` | Ticket system via `defineMcpClientConnection` + `connect("linear/my-agent")` | `user` (or `app` for non-interactive) |
 
-### UI Components (JSX)
-- [x] `<Card>` with `<Button>` - Ticket actions, escalation button
-- [x] `<Modal>` - Ticket creation form
+### Durability & State
+- [x] Durable sessions - Multi-turn support threads resume across restarts
+- [x] Database (persistent storage) - Ticket cross-references, if not fully delegated to the ticket system
 
-### Files to Create/Modify (Chat SDK)
-- `lib/bot.tsx` - Bot instance, handlers
-- `lib/tools/search-knowledge-base.ts`
-- `lib/tools/create-ticket.ts`
-- `lib/tools/escalate.ts`
-- `app/api/webhooks/[platform]/route.ts`
+### Delivery
+- [x] HITL buttons - `create_ticket` and `escalate_to_human` gated with `approval` so the requester confirms before filing
+- [x] mrkdwn answers with linked sources
+- [x] `toModelOutput` - Return compact ticket JSON to the model; channel gets the full payload
 
-### Files to Create/Modify (Bolt)
-- `server/bolt/app.ts`, `server/listeners/events/app-mention.ts`
-- `server/lib/ai/tools.ts`
-- `server/api/slack/events.post.ts`
+### Files to Create/Modify
+- `agent/instructions.md` - Support persona, escalation policy
+- `agent/agent.ts`
+- `agent/channels/slack.ts`
+- `agent/tools/search_knowledge_base.ts`
+- `agent/tools/create_ticket.ts`
+- `agent/tools/get_ticket_status.ts`
+- `agent/tools/escalate_to_human.ts`
+- `agent/connections/linear.ts` - Vercel Connect MCP connection
+- `agent/skills/triage.md` - Triage/escalation playbook (load-on-demand)
 ```
 
 ---
@@ -231,7 +240,7 @@ An AI-powered support bot that answers questions, creates tickets, and escalates
 
 ### Typical Features
 - External API integration
-- Formatted responses with JSX components
+- Formatted mrkdwn responses
 - Caching for performance
 - Multiple data sources
 
@@ -249,17 +258,18 @@ A bot that provides weather information for any location using an external weath
 3. **Alerts** - Weather alerts and warnings
 4. **Location Memory** - Remember user's preferred locations
 
-### Slash Commands
-| Command | Description | Example |
-|---------|-------------|---------|
-| `/weather` | Get current weather | `/weather San Francisco` |
-| `/forecast` | Get 5-day forecast | `/forecast New York` |
-| `/weather-alerts` | Get active alerts | `/weather-alerts California` |
-| `/weather-set-default` | Set default location | `/weather-set-default Seattle` |
+### Interactions (@mentions and DMs)
+| Phrasing | What it does | Example |
+|----------|--------------|---------|
+| `@agent weather in [place]` | Get current weather | `@agent what's the weather in San Francisco?` |
+| `@agent forecast for [place]` | Get 5-day forecast | `@agent 5-day forecast for New York` |
+| `@agent any weather alerts?` | Get active alerts | `@agent weather alerts for California?` |
+| `@agent set my default to [place]` | Set default location | `@agent default me to Seattle` |
 
-### Event Handlers
-- [x] `onNewMention` - Answer weather questions in channels
-- [x] `onSubscribedMessage` - Follow-up weather queries
+### Dispatch Hooks & Events
+- [x] `onAppMention` - Answer weather questions in channels
+- [x] `onDirectMessage` - Private lookups
+- [x] `threadContext: { since: "last-agent-reply" }` - Follow-up queries ("what about tomorrow?")
 
 ### AI Tools
 | Tool | Purpose | Parameters |
@@ -267,26 +277,25 @@ A bot that provides weather information for any location using an external weath
 | `get_current_weather` | Fetch current conditions | `location` |
 | `get_forecast` | Fetch multi-day forecast | `location`, `days` |
 | `get_weather_alerts` | Fetch active alerts | `region` |
+| `set_default_location` | Store a user preference | `userId`, `location` |
 
-### State Management
-- [ ] Stateless (simple request/response) - Most queries are one-shot
-- [x] Chat SDK state - User location preferences per thread
+### Durability & State
+- [x] Durable sessions - Follow-ups in a thread reuse session context (no extra config)
+- [x] Database (persistent storage) - Default locations across sessions (Upstash Redis)
 
-### UI Components (JSX)
-- [x] `<Card>` - Formatted weather cards
-- [ ] `<Modal>` - Not needed
+### Delivery
+- [x] mrkdwn weather summaries
+- [x] `toModelOutput` - Model sees a text summary; channel receives full API payload for richer formatting
 
-### Files to Create/Modify (Chat SDK)
-- `lib/bot.tsx` - Bot instance, handlers
-- `lib/tools/get-weather.ts`
+### Files to Create/Modify
+- `agent/instructions.md` - Response style, unit conventions
+- `agent/agent.ts`
+- `agent/channels/slack.ts`
+- `agent/tools/get_current_weather.ts`
+- `agent/tools/get_forecast.ts`
+- `agent/tools/get_weather_alerts.ts`
+- `agent/tools/set_default_location.ts`
 - `lib/weather/api-client.ts`
-- `lib/weather/formatters.tsx`
-- `app/api/webhooks/[platform]/route.ts`
-
-### Files to Create/Modify (Bolt)
-- `server/bolt/app.ts`, `server/listeners/commands/weather.ts`
-- `server/lib/ai/tools.ts`
-- `server/api/slack/events.post.ts`
 ```
 
 ---
@@ -312,17 +321,20 @@ A conversational AI assistant that can help with various tasks through natural d
 ### Core Features
 1. **Multi-turn Conversations** - Maintains context across messages
 2. **Tool Calling** - Performs actions based on conversation
-3. **Conversation Memory** - Remembers past interactions via thread state
-4. **Customizable Personality** - Adjustable system prompt
+3. **Conversation Memory** - Durable sessions preserve dialogue per thread
+4. **Customizable Personality** - `agent/instructions.md` system prompt
 
-### Slash Commands
-| Command | Description | Example |
-|---------|-------------|---------|
-| `/ask` | Start a conversation | `/ask Help me write an email` |
+### Interactions (@mentions and DMs)
+| Phrasing | What it does | Example |
+|----------|--------------|---------|
+| `@agent [anything]` | Start a conversation in a thread | `@agent help me draft an email to the team` |
+| Reply in the thread | Continue the conversation | `Make it more formal` |
+| DM the bot | Private conversation | `Summarize this doc for me...` |
 
-### Event Handlers
-- [x] `onNewMention` - Respond to @mentions with AI
-- [x] `onSubscribedMessage` - Full conversations in threads
+### Dispatch Hooks & Events
+- [x] `onAppMention` - Respond to @mentions with AI
+- [x] `onDirectMessage` - Full private conversations
+- [x] `threadContext: { since: "thread-root" }` - Multi-user thread context (speaker attribution is preserved automatically)
 
 ### AI Tools
 | Tool | Purpose | Parameters |
@@ -331,25 +343,23 @@ A conversational AI assistant that can help with various tasks through natural d
 | `calculate` | Perform calculations | `expression` |
 | `set_reminder` | Create a reminder | `message`, `time` |
 
-### State Management
-- [x] Chat SDK state - Conversation history per thread
-- [x] Database (persistent storage) - Long-term memory
+### Durability & State
+- [x] Durable sessions - Conversation history per thread, resumable and crash-safe by default
+- [x] Database (persistent storage) - Long-term memory across threads (optional)
 
-### UI Components (JSX)
-- [x] `<Card>` with `<Button>` - Action suggestions
-- [ ] `<Modal>` - Not typically needed
+### Delivery
+- [x] Typing lifecycle - Reasoning snippets and action labels keep long turns transparent
+- [x] mrkdwn replies in-thread
+- [x] HITL buttons - Gate side-effecting tools like `set_reminder` with `approval: once()`
 
-### Files to Create/Modify (Chat SDK)
-- `lib/bot.tsx` - Bot instance, mention/message handlers
-- `lib/tools/search-web.ts`
-- `lib/tools/calculate.ts`
-- `lib/ai/agent.ts` - Agent configuration
-- `app/api/webhooks/[platform]/route.ts`
-
-### Files to Create/Modify (Bolt)
-- `server/bolt/app.ts`, `server/listeners/events/app-mention.ts`
-- `server/lib/ai/agent.ts`, `server/lib/ai/tools.ts`
-- `server/api/slack/events.post.ts`
+### Files to Create/Modify
+- `agent/instructions.md` - Personality and behavior
+- `agent/agent.ts` - Model, reasoning effort, compaction
+- `agent/channels/slack.ts`
+- `agent/tools/search_web.ts`
+- `agent/tools/calculate.ts`
+- `agent/tools/set_reminder.ts`
+- `agent/skills/[topic].md` - Specialized behaviors, loaded on demand
 ```
 
 ---
@@ -359,9 +369,9 @@ A conversational AI assistant that can help with various tasks through natural d
 **Use case:** Automates workflows and integrates with external services.
 
 ### Typical Features
-- Slash commands for actions
-- Interactive confirmations
-- Webhook integrations
+- Natural-language triggers for actions
+- Approval-gated confirmations (HITL)
+- External service integrations via Vercel Connect
 - Scheduled automations
 
 ### Example Plan
@@ -373,22 +383,22 @@ A conversational AI assistant that can help with various tasks through natural d
 A bot that helps manage deployments, CI/CD pipelines, and release workflows.
 
 ### Core Features
-1. **Deployment Triggers** - Start deployments via slash command
+1. **Deployment Triggers** - Start deployments by asking the agent
 2. **Status Monitoring** - Check deployment status
 3. **Rollback Support** - Quick rollback to previous versions
 4. **Notifications** - Post updates to channels
 
-### Slash Commands
-| Command | Description | Example |
-|---------|-------------|---------|
-| `/deploy` | Trigger a deployment | `/deploy staging` |
-| `/deploy-status` | Check deployment status | `/deploy-status production` |
-| `/rollback` | Rollback to previous version | `/rollback production` |
-| `/releases` | List recent releases | `/releases` |
+### Interactions (@mentions and DMs)
+| Phrasing | What it does | Example |
+|----------|--------------|---------|
+| `@agent deploy [env]` | Trigger a deployment | `@agent deploy staging` |
+| `@agent deploy status` | Check deployment status | `@agent how's the production deploy?` |
+| `@agent rollback [env]` | Rollback to previous version | `@agent roll back production` |
+| `@agent recent releases` | List recent releases | `@agent what shipped this week?` |
 
-### Event Handlers
-- [x] `onNewMention` - Answer deployment questions
-- [x] `onAction` - Handle confirmation buttons
+### Dispatch Hooks & Events
+- [x] `onAppMention` - Deployment requests and questions
+- [x] `onInteraction` - Any `block_actions` beyond the built-in HITL buttons
 
 ### AI Tools
 | Tool | Purpose | Parameters |
@@ -398,25 +408,28 @@ A bot that helps manage deployments, CI/CD pipelines, and release workflows.
 | `rollback_deployment` | Trigger rollback | `environment`, `version` |
 | `list_releases` | Get recent releases | `count` |
 
-### State Management
-- [ ] Stateless (simple request/response) - Commands are atomic
+### Connections
+| Connection | Provider | Scope |
+|------------|----------|-------|
+| `github` | Repo/workflow access via `connect("github/my-agent")` in tools (`ctx.getToken`) | `app` for CI actions, `user` if attribution matters |
 
-### UI Components (JSX)
-- [x] `<Card>` with `<Button>` - Confirm/cancel buttons
-- [x] `<Modal>` - Deployment configuration
+### Durability & State
+- [x] Durable sessions - An approval-gated deploy pauses the session and resumes on the button click, even across restarts. Make interrupted side effects idempotent (steps interrupted mid-execution re-run).
 
-### Files to Create/Modify (Chat SDK)
-- `lib/bot.tsx` - Bot instance, command/action handlers
-- `lib/tools/trigger-deployment.ts`
-- `lib/tools/get-deployment-status.ts`
-- `lib/deploy/github-client.ts`
-- `app/api/webhooks/[platform]/route.ts`
+### Delivery
+- [x] HITL buttons - `trigger_deployment` and `rollback_deployment` use `approval: always()`; confirm/cancel renders as Slack buttons
+- [x] Typing lifecycle - Action labels show which step is running
+- [x] mrkdwn status updates
 
-### Files to Create/Modify (Bolt)
-- `server/bolt/app.ts`, `server/listeners/commands/deploy.ts`
-- `server/lib/ai/tools.ts`
-- `server/lib/deploy/github-client.ts`
-- `server/api/slack/events.post.ts`
+### Files to Create/Modify
+- `agent/instructions.md` - Deployment policies, environment rules
+- `agent/agent.ts`
+- `agent/channels/slack.ts`
+- `agent/tools/trigger_deployment.ts`
+- `agent/tools/get_deployment_status.ts`
+- `agent/tools/rollback_deployment.ts`
+- `agent/tools/list_releases.ts`
+- `agent/connections/github.ts` (if using an MCP connection instead of authored tools)
 ```
 
 ---
@@ -426,7 +439,7 @@ A bot that helps manage deployments, CI/CD pipelines, and release workflows.
 **Use case:** Monitors systems and sends alerts to Slack channels.
 
 ### Typical Features
-- Webhook receiver for external events
+- Alert ingestion from external systems
 - Alert routing to appropriate channels
 - Alert acknowledgment and silencing
 - Escalation rules
@@ -440,49 +453,58 @@ A bot that helps manage deployments, CI/CD pipelines, and release workflows.
 A bot that receives alerts from monitoring systems and routes them to appropriate channels.
 
 ### Core Features
-1. **Alert Ingestion** - Receive webhooks from monitoring systems
+1. **Alert Ingestion** - Monitoring systems start sessions via eve's HTTP API (`POST /eve/v1/session`) or a schedule polls the monitoring API
 2. **Smart Routing** - Route alerts to appropriate channels based on rules
-3. **Acknowledgment** - Team members can ack alerts
+3. **Acknowledgment** - Team members ack alerts via buttons
 4. **Escalation** - Escalate unacknowledged alerts
 
-### Slash Commands
-| Command | Description | Example |
-|---------|-------------|---------|
-| `/alert-ack` | Acknowledge an alert | `/alert-ack #12345` |
-| `/alert-silence` | Silence alerts for a service | `/alert-silence api-server 1h` |
-| `/alert-status` | View active alerts | `/alert-status` |
-| `/on-call` | Show who's on call | `/on-call` |
+### Interactions (@mentions and DMs)
+| Phrasing | What it does | Example |
+|----------|--------------|---------|
+| Ack button on the alert | Acknowledge an alert | (HITL button click) |
+| `@agent silence [service]` | Silence alerts for a service | `@agent silence api-server for 1h` |
+| `@agent active alerts` | View active alerts | `@agent what's firing right now?` |
+| `@agent who's on call?` | Show who's on call | `@agent who's on call tonight?` |
 
-### Event Handlers
-- [x] `onReaction` - Ack alerts with emoji reactions
-- [x] `onAction` - Handle ack/silence buttons
+### Dispatch Hooks & Events
+- [x] `onAppMention` - Status queries, silencing
+- [x] `onInteraction` - Ack/silence `block_actions` not consumed by HITL
 
-### Scheduled Jobs
+### AI Tools
+| Tool | Purpose | Parameters |
+|------|---------|------------|
+| `route_alert` | Pick target channel from rules | `alert` |
+| `ack_alert` | Mark an alert acknowledged | `alertId`, `userId` |
+| `silence_alerts` | Silence a service | `service`, `duration` |
+| `list_active_alerts` | Show unresolved alerts | — |
+| `get_on_call` | Show on-call rotation | — |
+
+### Schedules
 | Schedule | Action |
 |----------|--------|
-| `*/5 * * * *` | Check for unacked alerts, escalate if needed |
+| `*/5 * * * *` | Check for unacked alerts; escalate via `receive(slack, { message, target: { channelId }, auth })` |
 
-### State Management
+### Durability & State
+- [x] Durable sessions - Proactive alert sessions anchor a thread on first post; escalation follow-ups continue it
 - [x] Database (persistent storage) - Alert state, ack status, routing rules
 
-### UI Components (JSX)
-- [x] `<Card>` with `<Button>` - Ack/silence buttons on alerts
-- [x] `<Modal>` - Alert configuration
+### Delivery
+- [x] HITL buttons - Ack/silence rendered as buttons on the alert post
+- [x] mrkdwn alert formatting with severity and links
+- [x] Proactive posts - Schedules use `receive(slack, ...)`; outside handlers, `callSlackApi({ botToken, operation, body })` with `resolveSlackBotToken` for raw API needs
 
-### Files to Create/Modify (Chat SDK)
-- `lib/bot.tsx` - Bot instance, reaction/action handlers
-- `app/api/webhooks/alerts/route.ts` - External alert ingestion
-- `app/api/webhooks/[platform]/route.ts` - Slack webhook
+### Files to Create/Modify
+- `agent/instructions.md` - Routing rules, severity conventions
+- `agent/agent.ts`
+- `agent/channels/slack.ts` - Mention/interaction hooks
+- `agent/tools/route_alert.ts`
+- `agent/tools/ack_alert.ts`
+- `agent/tools/silence_alerts.ts`
+- `agent/tools/list_active_alerts.ts`
+- `agent/tools/get_on_call.ts`
 - `lib/alerts/router.ts`
 - `lib/alerts/escalation.ts`
-- `app/api/cron/alert-escalation/route.ts`
-
-### Files to Create/Modify (Bolt)
-- `server/bolt/app.ts`, `server/listeners/actions/alert-ack.ts`
-- `server/listeners/commands/alert.ts`
-- `server/lib/alerts/router.ts`, `server/lib/alerts/escalation.ts`
-- `server/api/slack/events.post.ts`
-- `server/api/cron/alert-escalation.get.ts`
+- Schedule definition for the 5-minute escalation check
 ```
 
 ---
@@ -517,8 +539,8 @@ When generating plans, indicate complexity to set expectations:
 
 | Complexity | Characteristics | Example |
 |------------|-----------------|---------|
-| **Simple** | 1-2 slash commands, no database, no scheduled jobs | Weather lookup |
-| **Medium** | Multiple commands, basic state, JSX components | Ticket system |
-| **Complex** | Multi-turn workflows, database, scheduled jobs, webhooks | Full standup bot |
+| **Simple** | 1-3 tools, no database, no schedules | Weather lookup |
+| **Medium** | Multiple tools, Vercel Connect connection, HITL approvals | Ticket system |
+| **Complex** | Multi-turn workflows, database, schedules, proactive sessions | Full standup bot |
 
 Include a complexity indicator in your generated plans to help users understand scope.

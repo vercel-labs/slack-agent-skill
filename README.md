@@ -1,19 +1,17 @@
 # Slack Agent Skill
 
-An agent-agnostic skill for building and deploying Slack agents on Vercel. Supports two frameworks:
-
-- **[Chat SDK](https://www.chat-sdk.dev/)** (Recommended for new projects) — `chat` + `@chat-adapter/slack` with Next.js
-- **[Bolt for JavaScript](https://slack.dev/bolt-js/)** (For existing Bolt projects) — `@slack/bolt` with Nitro
+A skill for building and deploying Slack agents on Vercel with **[eve](https://eve.dev/docs)** (Vercel's durable agent framework) and **[Vercel Connect](https://vercel.com/kb/guide/vercel-connect)** (managed Slack credentials — no bot tokens or signing secrets to handle).
 
 ## Features
 
 - **Interactive Setup Wizard**: Step-by-step guidance from project creation to production deployment
-- **Dual Framework Support**: Chat SDK (JSX components, thread subscriptions) and Bolt for JavaScript (Block Kit, event listeners)
+- **eve Framework**: Filesystem-first agents — `instructions.md`, `defineAgent`, tools in `agent/tools/`, a Slack channel in `agent/channels/` — with a durable, crash-safe runtime
+- **Vercel Connect Integration**: Managed Slack OAuth, token rotation, and webhook verification; the only Slack env var is `SLACK_CONNECTOR`
 - **Custom Implementation Planning**: Generates a tailored plan based on your agent's purpose before scaffolding
 - **Quality Standards**: Embedded testing and code quality requirements
-- **AI Integration**: Support for Vercel AI Gateway and direct provider SDKs
-- **Comprehensive Patterns**: Slack-specific development patterns and best practices for both frameworks
-- **Testing Framework**: Vitest configuration and sample tests for both stacks
+- **AI Integration**: Vercel AI Gateway (`anthropic/claude-sonnet-5` by default) — no AI API keys on Vercel
+- **Comprehensive Patterns**: eve tools, approval gating, thread context, and Slack delivery patterns
+- **Testing Framework**: Vitest configuration and sample tests
 
 ## Installation
 
@@ -37,39 +35,43 @@ Run the slash command:
 /slack-agent
 
 Or with arguments:
-/slack-agent new       # Start fresh project (recommends Chat SDK)
-/slack-agent configure # Configure existing project (auto-detects framework)
+/slack-agent new       # Start fresh project (scaffolds with eve)
+/slack-agent configure # Configure existing project (auto-detects eve)
 /slack-agent deploy    # Deploy to production
 /slack-agent test      # Set up testing
 ```
 
 The wizard will guide you through:
-1. Framework selection and project setup
-2. Custom implementation plan generation and approval
-3. Slack app creation with customized manifest
-4. Environment configuration
-5. Local testing with ngrok
-6. Production deployment to Vercel
-7. Test framework setup
+1. Project setup with custom implementation plan generation and approval
+2. Slack connector creation with Vercel Connect
+3. Environment configuration
+4. Local agent testing with the eve dev TUI
+5. Production deployment to Vercel
+6. Test framework setup
+
+Note: Slack events route through Vercel Connect to your deployed project, so the Slack surface itself is tested after deploy — no ngrok tunnel needed. Everything else (tools, instructions, conversations) is tested locally in the `eve dev` TUI.
 
 ### Development
 
-When working on an existing Slack agent project, the skill automatically detects the framework from `package.json`:
-- **`"chat"` in dependencies** — Uses Chat SDK patterns
-- **`"@slack/bolt"` in dependencies** — Uses Bolt patterns
+When working on an existing Slack agent project, the skill detects eve from `package.json`:
+- **`"eve"` in dependencies** — Uses eve patterns (tools in `agent/tools/`, Slack channel in `agent/channels/slack.ts`)
 
-The skill then provides framework-appropriate:
+The skill then provides:
 - Code quality standards (linting, testing, TypeScript)
-- Slack-specific patterns (event handlers, slash commands, UI components)
-- AI integration guidance (Vercel AI Gateway, direct providers)
+- eve-specific patterns (tools, skills, channels, hooks, approval gating)
+- AI integration guidance (Vercel AI Gateway)
 - Deployment best practices
 
 ## Key Commands
 
 ```bash
+# Setup
+npx eve@latest init my-agent          # Scaffold a new eve project (Node 24+)
+vercel connect create slack --triggers # Create the Slack connector
+vercel connect attach <uid> --triggers --trigger-path /eve/v1/slack --yes
+
 # Development
-pnpm dev              # Start local dev server
-ngrok http 3000       # Expose local server
+eve dev               # Local dev server + terminal TUI
 
 # Quality
 pnpm lint             # Check linting
@@ -78,8 +80,7 @@ pnpm typecheck        # TypeScript check
 pnpm test             # Run tests
 
 # Deployment
-vercel                # Deploy to Vercel
-vercel --prod         # Production deployment
+eve deploy            # Production deployment (wraps vercel deploy --prod)
 ```
 
 ## Quality Standards
@@ -94,8 +95,10 @@ The skill enforces these requirements:
 
 ## Related Resources
 
-- [Chat SDK Documentation](https://www.chat-sdk.dev/)
-- [Bolt for JavaScript Documentation](https://slack.dev/bolt-js/)
+- [eve Documentation](https://eve.dev/docs)
+- [eve on the Vercel Knowledge Base](https://vercel.com/kb/eve)
+- [Vercel Connect Guide](https://vercel.com/kb/guide/vercel-connect)
+- [eve Slack Agent Starter](https://vercel.com/kb/guide/eve-slack-agent-starter)
 - [AI SDK Documentation](https://ai-sdk.dev)
 - [Slack API Documentation](https://api.slack.com)
 - [Vercel Documentation](https://vercel.com/docs)

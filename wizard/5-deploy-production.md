@@ -1,6 +1,6 @@
 # Phase 5: Deploy to Production
 
-This phase guides the user through deploying their Slack agent to Vercel.
+This phase guides the user through deploying their eve agent to Vercel and testing the Slack surface — which only works against a deployment (Vercel Connect forwards events to deployments, never localhost).
 
 ---
 
@@ -16,24 +16,20 @@ git push -u origin main
 
 ## Step 5.2: Deploy to Vercel
 
-**Option A - Via CLI:**
+**Option A - Via CLI (recommended):**
 ```bash
-vercel
+npx eve deploy
 ```
+This wraps `vercel deploy --prod` — eve builds and emits Vercel Build Output.
 
-**Option B - Via Dashboard:**
-
-### If using Chat SDK
+**Option B - Git-connected deploy:**
 > 1. Go to https://vercel.com/new
 > 2. Import your GitHub repository
-> 3. Framework Preset should auto-detect **Next.js**
-> 4. Click **Deploy**
+> 3. Click **Deploy**
+>
+> After that, every push to `main` deploys to production automatically.
 
-### If using Bolt for JavaScript
-> 1. Go to https://vercel.com/new
-> 2. Import your GitHub repository
-> 3. Set Framework Preset to **Other**
-> 4. Click **Deploy**
+**If the build fails:** check the build logs for a **sandbox prewarm** failure — Vercel builds prewarm sandbox templates, and a failed prewarm fails the build.
 
 ---
 
@@ -42,148 +38,106 @@ vercel
 Tell the user:
 
 > **Add environment variables in Vercel:**
-
-### If using Chat SDK
-
+>
 > **Option A - Via CLI:**
 > ```bash
-> vc env add SLACK_BOT_TOKEN
-> vc env add SLACK_SIGNING_SECRET
-> vc env add REDIS_URL
+> vercel env add SLACK_CONNECTOR
 > ```
-> Paste each value when prompted. Select all environments (Production, Preview, Development) when asked.
+> Enter your connector UID (e.g., `slack/my-agent`) when prompted. Select all environments (Production, Preview, Development) when asked.
 >
 > **Option B - Via Dashboard:**
 > 1. Go to your project in Vercel Dashboard
 > 2. Go to **Settings** -> **Environment Variables**
-> 3. Add these variables:
->    - `SLACK_BOT_TOKEN` = your bot token
->    - `SLACK_SIGNING_SECRET` = your signing secret
->    - `REDIS_URL` = your Redis connection URL
+> 3. Add `SLACK_CONNECTOR` = your connector UID
 > 4. Click **Save**
 
-### If using Bolt for JavaScript
-
-> **Option A - Via CLI:**
-> ```bash
-> vc env add SLACK_BOT_TOKEN
-> vc env add SLACK_SIGNING_SECRET
-> ```
-> Paste each value when prompted. Select all environments (Production, Preview, Development) when asked.
->
-> **Option B - Via Dashboard:**
-> 1. Go to your project in Vercel Dashboard
-> 2. Go to **Settings** -> **Environment Variables**
-> 3. Add these variables:
->    - `SLACK_BOT_TOKEN` = your bot token
->    - `SLACK_SIGNING_SECRET` = your signing secret
-> 4. Click **Save**
-
-**After adding variables:** Redeploy the project for changes to take effect.
-- CLI: `vercel --prod`
-- Dashboard: Deployments -> ... -> Redeploy
+No `SLACK_BOT_TOKEN` or `SLACK_SIGNING_SECRET` is needed — Vercel Connect brokers short-lived Slack tokens at runtime and verifies forwarded webhooks.
 
 **Note for AI configuration:**
-- **Using Vercel AI Gateway?** No AI API keys needed - it handles authentication automatically.
-- **Using a direct provider SDK?** Also add your provider's API key (e.g., `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`).
+- **Using Vercel AI Gateway (default)?** No AI API keys needed — string model IDs authenticate via the project's OIDC token on Vercel.
+
+**Route auth:** if you replaced `placeholderAuth()` with e.g. `httpBasic()`, add its secrets (e.g., `ROUTE_AUTH_BASIC_PASSWORD`). Remember `placeholderAuth()` fails closed in production — the HTTP API rejects everything until it's replaced.
+
+**After adding variables:** Redeploy the project for changes to take effect.
+- CLI: `npx eve deploy`
+- Dashboard: Deployments -> ... -> Redeploy
 
 ---
 
-## Step 5.4: Update Slack App URLs for Production
+## Step 5.4: Confirm the Connector Trigger Destination
 
-Ask the user for their Vercel deployment URL and deployment protection status:
+Slack events reach the agent only if the connector's trigger forwarding points at this project's production deployment on eve's Slack route.
 
-> **What's your Vercel deployment URL?** (e.g., `https://my-agent.vercel.app`)
+Check the current attachment:
 
-> **Is Deployment Protection enabled for this project?**
->
-> Deployment Protection prevents unauthorized access to preview deployments. If enabled, Slack won't be able to verify your URL without a bypass secret.
->
-> - Check your Vercel Dashboard -> Project Settings -> Deployment Protection
-> - If "Standard Protection" or "All Deployments" is enabled, answer **Yes**
-
-**If Deployment Protection is enabled:**
-
-Tell the user:
-
-> **Get your Deployment Protection Bypass Secret:**
->
-> 1. Go to your Vercel Dashboard -> Project Settings -> Deployment Protection
-> 2. Under "Protection Bypass for Automation", copy the secret
->    (or find it as the `VERCEL_AUTOMATION_BYPASS_SECRET` environment variable)
-> 3. Share this secret with me so I can add it to the manifest URLs
-
-Once they provide the secret, the URL format depends on the framework:
-
-### If using Chat SDK
-```
-https://YOUR-APP.vercel.app/api/webhooks/slack?x-vercel-protection-bypass=YOUR_SECRET
+```bash
+vercel connect list
 ```
 
-### If using Bolt for JavaScript
+If the connector isn't registered as a trigger destination on `/eve/v1/slack`, re-run the attach with the right path:
+
+```bash
+vercel connect attach <connector-uid> --triggers --trigger-path /eve/v1/slack --yes
 ```
-https://YOUR-APP.vercel.app/api/slack/events?x-vercel-protection-bypass=YOUR_SECRET
-```
 
-**Update the manifest:**
+- `--triggers` registers this project as a trigger destination — without it, `app_mention` / `message.im` never arrive
+- `--trigger-branch` defaults to production, which is what you want here
+- Note: `vercel connect detach` removes token access but does **not** remove trigger destinations — manage those on the connector (dashboard: `vercel connect open <connector-uid>`)
 
-1. Read the project's `manifest.json`
-2. Update these fields with the production URL (including bypass parameter if needed):
-   - `settings.event_subscriptions.request_url`
-   - `settings.interactivity.request_url`
-3. Write the updated `manifest.json`
-
-Then tell the user:
-
-> **Point Slack to your production URL:**
->
-> 1. Go to your Slack app at https://api.slack.com/apps
-> 2. Click on your app
-> 3. Go to **App Manifest** in the sidebar
-> 4. Switch to the **JSON** tab
-> 5. Replace the entire manifest with the content below
-> 6. Click **Save Changes**
-> 7. If prompted, click **Accept** to confirm the changes
-
-Display the full updated `manifest.json` content for the user to copy.
-
-**Security Note (if using bypass secret):**
-
-> **Security Considerations:**
->
-> - The bypass secret is visible in your Slack app configuration to anyone with access
-> - Query parameters may appear in server logs
-> - Your bot still validates requests using Slack's signing secret
-> - Consider rotating the bypass secret periodically
+Deployment Protection does not block Connect's forwarded events, and no bypass secret is needed for the trigger path. If protection is enabled and you want to run verification curls against the deployment, set `VERCEL_AUTOMATION_BYPASS_SECRET` locally and pass it as the `x-vercel-protection-bypass` header on those curls only.
 
 ---
 
 ## Step 5.5: Verify Production
 
-Tell the user:
+First, confirm the deployment is healthy:
 
-> **Verify everything works:**
+```bash
+curl https://YOUR-APP.vercel.app/eve/v1/health
+```
+
+Then tell the user:
+
+> **Test the Slack surface:**
 >
-> 1. Send a message to your bot in Slack
-> 2. Check Vercel Dashboard -> Logs for the request
-> 3. Confirm the bot responds correctly
+> 1. Open your Slack workspace
+> 2. Invite the bot to a channel: `/invite @YourBotName`
+> 3. Mention the bot: `@YourBotName hello!`
+> 4. You should see a "Working…" indicator, then a reply in the thread
+> 5. Check Vercel Dashboard -> Logs for the forwarded event
+
+For an interactive smoke test of the deployed agent itself:
+
+```bash
+npx eve dev https://YOUR-APP.vercel.app
+```
 
 ---
 
 ## Troubleshooting
 
-### "url_verification" failed
-- Make sure your deployment is complete
-- Check the URL is correct:
-  - **Chat SDK:** includes `/api/webhooks/slack`
-  - **Bolt:** includes `/api/slack/events`
-- If using Vercel with Deployment Protection, add the bypass secret to your URL
+### Bot doesn't respond to @mentions
+- Invite the bot to the channel first
+- Confirm the deployment finished (check Deployments in the dashboard)
+- Confirm the connector trigger is attached to **this** project with `--triggers` and trigger path `/eve/v1/slack` (`vercel connect list`)
+- Check the trigger branch/environment — triggers default to production; a trigger attached to another branch or a preview environment won't reach the production deployment
 
-### "invalid_auth" error
-- Check SLACK_BOT_TOKEN is correct in Vercel environment variables
-- Make sure you redeployed after adding the variables
+### Bot stuck on "Working…"
+- Stream logs from the deployment: `npx eve dev https://YOUR-APP.vercel.app --logs all` (or `/loglevel all` in the TUI)
+
+### Health check fails
+- Confirm the deployment completed and the URL is correct
+- If Deployment Protection is on, add `-H "x-vercel-protection-bypass: YOUR_SECRET"` to the curl
+
+### HTTP API rejects all requests
+- The scaffolded `placeholderAuth()` fails closed in production — replace it with a real auth function and set its secrets, then redeploy
 
 ---
+
+## Context to Store
+
+- **Deployment URL** — the production URL (used for health checks and `eve dev <url>`)
+- **Deployment protection status** — whether verification curls need the `x-vercel-protection-bypass` header
 
 ## Next Phase (Optional)
 

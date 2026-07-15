@@ -41,19 +41,19 @@ After presenting the plan, ask the user to choose how to proceed:
 Store the approved plan for reference throughout the remaining phases:
 
 1. **Note the key elements** that will be implemented:
-   - Slash commands to create
-   - AI tools to build
-   - Event handlers to set up
-   - State management approach
-   - Block Kit UI elements
+   - Dispatch hooks to set up (`onAppMention`, `onDirectMessage`, `onInteraction`)
+   - Tools to build (`agent/tools/*.ts`)
+   - Skills to write (`agent/skills/*.md`)
+   - Schedules and thread-context needs
+   - (No custom Slack UI needed - eve renders typing indicators and human-in-the-loop buttons itself)
 
 2. **Return to Phase 1** to continue with:
-   - [Step 1.3: Choose LLM Provider](./1-project-setup.md#step-13-choose-llm-provider-if-using-ai)
-   - [Step 1.4: Clone the Template](./1-project-setup.md#step-14-clone-the-template)
+   - [Step 1.3: Choose LLM Provider](./1-project-setup.md#step-13-choose-llm-provider)
+   - [Step 1.4: Scaffold the Project](./1-project-setup.md#step-14-scaffold-the-project)
 
 3. **The approved plan guides implementation** in later phases:
-   - Phase 2: Manifest will include the specified slash commands
-   - Phase 3+: Build the features specified in the plan
+   - Phase 1 (Step 1.5): instructions.md and the first tool come from the plan
+   - Phase 3+: Build the remaining features specified in the plan
 
 ### If User Wants Modifications
 
@@ -63,9 +63,9 @@ Ask clarifying questions about what to change:
 >
 > You can:
 > - Add or remove features
-> - Change slash command names
-> - Adjust AI capabilities
-> - Modify the state management approach
+> - Rename tools or change their parameters
+> - Adjust which dispatch hooks the agent responds to
+> - Add or drop skills and schedules
 > - Change any other aspect of the plan
 
 After receiving feedback:
@@ -78,11 +78,12 @@ After receiving feedback:
 
 | User says... | How to modify |
 |-------------|---------------|
-| "Add a command for X" | Add to Slash Commands table |
+| "It should be able to do X" | Add to the Tools table |
 | "I don't need X feature" | Remove from Core Features |
 | "Make it simpler" | Reduce scope, mark as lower complexity |
-| "Add AI for Y" | Add to AI Tools, update State Management if needed |
-| "I need to store data" | Update State Management to include database |
+| "It should also respond to DMs" | Add `onDirectMessage` to Dispatch Hooks |
+| "It should run every morning" | Add to Schedules with a cron expression |
+| "I need to store data" | Add a tool backed by a database or external API |
 
 ### If User Wants to Start Over
 
@@ -114,10 +115,10 @@ When modifying plans based on user feedback:
 > ### Core Features
 > 1. **Current Weather** - Get current conditions for a location
 >
-> ### Slash Commands
-> | Command | Description | Example |
-> |---------|-------------|---------|
-> | `/weather` | Get current weather | `/weather San Francisco` |
+> ### Tools
+> | Tool | Description | Example trigger |
+> |------|-------------|-----------------|
+> | `get_weather` | Get current weather for a city | "@weatherbot what's it like in San Francisco?" |
 >
 > ### Complexity: Simple
 > ```
@@ -130,10 +131,10 @@ After approval, maintain these details for use in later phases:
 
 | Context | Used In |
 |---------|---------|
-| Slash command names | Phase 2 (manifest.json) |
-| Bot scopes needed | Phase 2 (manifest.json) |
-| AI usage decision | Phase 1 (Step 1.3), Phase 3 (.env) |
-| State management approach | Phase 3+, implementation |
+| Tool names and parameters | Phase 1 (Step 1.5), implementation |
+| Dispatch hooks needed | Phase 1 (Step 1.5), implementation |
+| LLM provider choice | Phase 1 (Step 1.3), Phase 3 (.env) |
+| Thread-context and schedule needs | Implementation |
 | Feature list | Implementation reference |
 
 ---
@@ -144,4 +145,4 @@ After the plan is approved, return to [Phase 1: Project Setup](./1-project-setup
 - Step 1.3: Choose LLM Provider
 - Step 1.4: Scaffold the Project
 
-Then proceed to [Phase 2: Create Slack App](./2-create-slack-app.md).
+Then proceed to [Phase 2: Create the Slack Connector](./2-create-slack-app.md).

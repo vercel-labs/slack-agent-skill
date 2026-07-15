@@ -1,112 +1,90 @@
-# Phase 2: Create Slack App
+# Phase 2: Create the Slack Connector
 
-This phase guides the user through creating their Slack app with a customized manifest.
+This phase guides the user through connecting their agent to Slack with Vercel Connect. There is no Slack app to create at api.slack.com and no manifest to paste — Vercel Connect manages the Slack OAuth client, brokers short-lived tokens at runtime, and forwards Slack events to the deployed agent. The only Slack credential the project needs is the `SLACK_CONNECTOR` env var.
+
+**Prerequisites:** the latest Vercel CLI (`npm install -g vercel@latest`) and the project linked to Vercel (`vercel link`, done in Phase 1). The user needs permission to install apps in their Slack workspace.
 
 ---
 
-## Step 2.0: Customize Your App
+## Step 2.0: Choose a Connector Name
 
-Before creating the Slack app, collect customization details from the user. Use the context from Phase 1 (agent purpose) as defaults.
+Collect the connector name from the user. Use the context from Phase 1 (agent purpose) as the default.
 
 Ask the user:
 
-> **Let's customize your Slack app:**
+> **Let's set up your Slack connector:**
 >
-> 1. **App Name** (required) - The name users see in Slack (e.g., "Joke Bot")
-> 2. **App Description** (optional) - Brief description shown in Slack (e.g., "Tells hilarious jokes on demand")
-> 3. **Bot Display Name** (optional) - How the bot appears in conversations (defaults to App Name)
-> 4. **Background Color** (optional) - Hex color for app icon background (e.g., "#4A154B")
+> 1. **Connector Name** (required) - A short kebab-case identifier (e.g., "joke-bot"). The full connector UID becomes `slack/<name>`.
+> 2. **Environment** (optional) - Which environment this connector serves. Best practice is one connector per environment (e.g., `joke-bot` for production, `joke-bot-dev` for previews) to keep grants and audit trails separate.
 
-**After collecting responses:**
+**After collecting responses**, record the full UID (e.g., `slack/joke-bot`) — it will be used in every command below and stored as `SLACK_CONNECTOR` in Phase 3.
 
-1. Read the `manifest.json` file from the project (or create one if it doesn't exist)
-2. Update these fields with the user's values:
-   - `display_information.name` -> App Name
-   - `display_information.description` -> App Description (if provided)
-   - `features.bot_user.display_name` -> Bot Display Name (or App Name if not specified)
-   - `display_information.background_color` -> Background Color (if provided, without the `#` prefix)
-3. Write the updated `manifest.json` back to the project
-4. Display the updated manifest content for the user to copy into Slack's web UI
+---
 
-**Example updated manifest fields:**
-```json
-{
-  "display_information": {
-    "name": "Joke Bot",
-    "description": "Tells hilarious jokes on demand",
-    "background_color": "#4A154B"
-  },
-  "features": {
-    "bot_user": {
-      "display_name": "Joke Bot",
-      "always_online": true
-    }
-  }
-}
+## Step 2.1: Create the Connector
+
+Run (or have the user run) from the project directory:
+
+```bash
+vercel connect create slack --name <name> --triggers
 ```
 
-**Important:** The webhook URL should use `/api/webhooks/slack` (the Chat SDK convention):
-```json
-{
-  "settings": {
-    "event_subscriptions": {
-      "request_url": "https://your-domain.vercel.app/api/webhooks/slack"
-    },
-    "interactivity": {
-      "request_url": "https://your-domain.vercel.app/api/webhooks/slack"
-    }
-  }
-}
+- `--triggers` enables Slack Event Subscriptions through Connect. **Do not omit it** — without it, `app_mention` and `message.im` events never arrive.
+- The CLI sets up the connection automatically and opens the browser for steps that need manual input — installing the connector into the Slack workspace and selecting bot scopes and trigger events.
+
+Tell the user to select:
+
+> **Bot scopes:** `chat:write`, `channels:read`, `channels:history`, `groups:history`, `im:history`, `mpim:history`, `reactions:write`, `users:read`
+>
+> - `im:history` is required for the bot to answer DMs.
+> - The `*:history` scopes let eve load prior thread messages for context.
+>
+> **Trigger events:** `app_mention`, `message.im` (add `message.channels` / `message.groups` / `message.mpim` only if the agent should listen beyond mentions and DMs).
+
+---
+
+## Step 2.2: Attach with eve's Trigger Path
+
+Attach the connector to the project. The default trigger path is `/slack`, but eve serves its Slack channel at `/eve/v1/slack`, so set the path explicitly:
+
+```bash
+vercel connect attach slack/<name> --triggers --trigger-path /eve/v1/slack --yes
 ```
 
----
+(Don't use `detach` for this — it removes token access but does **not** remove trigger destinations. If a stale destination lingers, remove it on the connector: `vercel connect open slack/<name>`.)
 
-## Step 2.1: Create the App
-
-Tell the user:
-
-> **Create your Slack App:**
->
-> 1. Go to https://api.slack.com/apps/new
-> 2. Select **"From an app manifest"**
-> 3. Choose your target workspace
-> 4. Switch to the **JSON** tab
-> 5. Paste the manifest content below
-> 6. Click **Next**, review permissions, then **Create**
-
-Read and display the `manifest.json` file so the user can copy it.
+**Important:** the trigger path must be exactly `/eve/v1/slack` — events forwarded anywhere else are dropped by the app. `--trigger-branch` defaults to production, which is correct for this wizard.
 
 ---
 
-## Step 2.2: Install to Workspace
+## Step 2.3: Verify
 
-Tell the user:
+Confirm the connector exists and is attached to the project with the right trigger path:
 
-> **Install the app:**
->
-> 1. In your app dashboard, go to **Install App** (left sidebar)
-> 2. Click **Install to Workspace**
-> 3. Click **Allow** to authorize
+```bash
+vercel connect list
+```
+
+Check the output shows the connector UID (`slack/<name>`), the linked project, and trigger path `/eve/v1/slack`. If the path is wrong, repeat Step 2.2.
+
+Remind the user:
+
+> Slack events forward to **deployments only, never localhost** — the Slack surface can't be tested until the agent is deployed (Phase 5). Everything else works in the local eve TUI.
 
 ---
 
-## Step 2.3: Get Your Credentials
+## Context to Store
 
-Tell the user to collect these two values:
+Carry these values forward:
 
-> **Get your credentials (you'll need these for .env):**
->
-> **Bot Token:**
-> - Go to **Install App** in the sidebar
-> - Copy the **Bot User OAuth Token** (starts with `xoxb-`)
->
-> **Signing Secret:**
-> - Go to **Basic Information** in the sidebar
-> - Scroll to **App Credentials**
-> - Click **Show** next to Signing Secret and copy it
+- **`SLACK_CONNECTOR`** = `slack/<name>` (needed for `.env` in Phase 3)
+- Connector name and target Slack workspace
+- Selected bot scopes and trigger events (for troubleshooting later)
+
+No bot token or signing secret exists to collect — Connect issues short-lived tokens at runtime and verifies every forwarded event for you.
 
 ---
 
 ## Next Phase
 
-Once the Slack app is created and credentials are collected, proceed to [Phase 3: Configure Environment](./3-configure-environment.md).
+Once the connector is created, attached at `/eve/v1/slack`, and the `SLACK_CONNECTOR` value is recorded, proceed to [Phase 3: Configure Environment](./3-configure-environment.md).

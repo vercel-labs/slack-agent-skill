@@ -1,83 +1,133 @@
 # Testing Patterns for Slack Agents
 
-This document provides detailed testing patterns for Slack agent projects built with either the Chat SDK or Bolt for JavaScript.
+This document provides detailed testing patterns for Slack agent projects built with eve, Vercel's filesystem-first agent framework.
 
 ## Test File Organization
 
-### If using Chat SDK
+Tests are co-located with the code they test, following eve's filesystem-first conventions. Build artifacts in `.eve/` are always excluded.
 
 ```
-lib/
+agent/
 ├── __tests__/
-│   ├── setup.ts              # Global test setup and mocks
+│   ├── setup.ts                  # Global test setup and mocks
 │   └── helpers/
-│       ├── mock-context.ts   # Shared context mocks
-│       └── mock-thread.ts    # Chat SDK thread mocks
-├── bot.tsx                   # Bot instance
-├── bot.test.ts               # Bot handler tests
-├── ai/
-│   ├── agent.ts
-│   ├── agent.test.ts         # Unit tests (co-located)
-│   └── tools/
-│       ├── search.ts
-│       └── search.test.ts
-app/
-├── api/
-│   └── webhooks/
-│       └── [platform]/
-│           └── route.ts
+│       ├── mock-context.ts       # defineTool ctx mocks
+│       └── mock-channel.ts       # Slack channel handle mocks
+├── instructions.md               # Always-on system prompt (not tested)
+├── agent.ts                      # Runtime config (defineAgent)
+├── agent.test.ts                 # Agent config tests (co-located)
+├── tools/
+│   ├── get_weather.ts            # Tool — filename = tool name
+│   ├── get_weather.test.ts       # Unit tests (co-located)
+│   ├── search_channels.ts
+│   └── search_channels.test.ts
+├── channels/
+│   ├── slack.ts                  # Slack channel adapter
+│   └── slack.test.ts             # Channel config + event handler tests
+└── skills/
+    └── *.md                      # Load-on-demand instructions (not tested)
+.eve/                             # Build output — exclude from tests/coverage
 ```
 
-Template files: `./templates/chat-sdk/`
-
-### If using Bolt for JavaScript
-
-```
-server/
-├── __tests__/
-│   ├── setup.ts              # Global test setup and mocks
-│   └── helpers/
-│       ├── mock-client.ts    # Slack WebClient mocks
-│       └── mock-context.ts   # Bolt context mocks
-├── bolt/
-│   └── app.ts
-├── listeners/
-│   ├── events/
-│   │   ├── app-mention.ts
-│   │   └── app-mention.test.ts
-│   └── commands/
-│       ├── sample-command.ts
-│       └── sample-command.test.ts
-└── lib/
-    └── ai/
-        ├── agent.ts
-        ├── agent.test.ts
-        └── tools.ts
-        └── tools.test.ts
-```
-
-Template files: `./templates/bolt/`
+Template files: `./templates/eve/`
 
 ---
 
 ## Unit Testing Tools
 
+eve tools are default exports from `defineTool` with an `execute(input, ctx)` signature. Test them by importing the tool and calling `execute` directly with a mock `ctx`.
+
+### Mocking the Tool Context
+
+`ctx` only needs the fields your tool actually uses. Keep the mock minimal — `session`, `callId`, and `abortSignal` cover most tools:
+
+```typescript
+// agent/__tests__/helpers/mock-context.ts
+import { vi } from 'vitest';
+
+export function createMockToolContext(overrides = {}) {
+  return {
+    session: {
+      metadata: {},
+      turn: 1,
+      auth: {},
+    },
+    callId: 'call_test_123',
+    abortSignal: new AbortController().signal,
+    ...overrides,
+  };
+}
+```
+
+Add other `ctx` fields (e.g. `toolName`, `getSandbox`, `getSkill`) via `overrides` only when a tool depends on them.
+
 ### Testing a Tool Definition
 
 ```typescript
+// agent/tools/get_weather.test.ts
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { getChannelMessages } from './tools';
+import getWeather from './get_weather';
+import { createMockToolContext } from '../__tests__/helpers/mock-context';
 
-describe('getChannelMessages', () => {
+describe('get_weather', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('should return weather for a city', async () => {
+    const ctx = createMockToolContext();
+
+    const result = await getWeather.execute({ city: 'Brooklyn' }, ctx);
+
+    expect(result.city).toBe('Brooklyn');
+    expect(result.temperatureF).toBeTypeOf('number');
+  });
+
+  it('should reject invalid input via the schema', () => {
+    // Zod inputSchema validation — no execute call needed
+    const parsed = getWeather.inputSchema.safeParse({ city: '' });
+
+    expect(parsed.success).toBe(false);
+  });
+});
+```
+
+### Testing Error Paths
+
+Every tool test suite should cover the failure modes: upstream API errors, empty results, and invalid input. Return structured errors from `execute` rather than throwing, so the model can recover.
+
+```typescript
+// agent/tools/get_channel_messages.test.ts
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { callSlackApi } from 'eve/channels/slack';
+import getChannelMessages from './get_channel_messages';
+import { createMockToolContext } from '../__tests__/helpers/mock-context';
+
+// Mock at the module boundary — never reach into eve internals
+vi.mock('eve/channels/slack', () => ({
+  callSlackApi: vi.fn(),
+  resolveSlackBotToken: vi.fn().mockResolvedValue('xoxb-test-token'),
+}));
+
+describe('get_channel_messages', () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
   it('should fetch messages from channel', async () => {
-    const result = await getChannelMessages.execute({
-      channel_id: 'C12345678',
-      limit: 10,
+    vi.mocked(callSlackApi).mockResolvedValue({
+      ok: true,
+      messages: [
+        { text: 'Hello', user: 'U123', ts: '123.001' },
+        { text: 'World', user: 'U456', ts: '123.002' },
+      ],
+      has_more: false,
     });
+
+    const result = await getChannelMessages.execute(
+      { channel_id: 'C12345678', limit: 10 },
+      createMockToolContext()
+    );
 
     expect(result.success).toBe(true);
     expect(result.messages).toHaveLength(2);
@@ -85,20 +135,30 @@ describe('getChannelMessages', () => {
   });
 
   it('should handle empty channel', async () => {
-    const result = await getChannelMessages.execute({
-      channel_id: 'C_EMPTY',
-      limit: 10,
+    vi.mocked(callSlackApi).mockResolvedValue({
+      ok: true,
+      messages: [],
+      has_more: false,
     });
+
+    const result = await getChannelMessages.execute(
+      { channel_id: 'C_EMPTY', limit: 10 },
+      createMockToolContext()
+    );
 
     expect(result.success).toBe(true);
     expect(result.messages).toHaveLength(0);
   });
 
   it('should handle API errors gracefully', async () => {
-    const result = await getChannelMessages.execute({
-      channel_id: 'C_INVALID',
-      limit: 10,
-    });
+    vi.mocked(callSlackApi).mockRejectedValue(
+      new Error('channel_not_found')
+    );
+
+    const result = await getChannelMessages.execute(
+      { channel_id: 'C_INVALID', limit: 10 },
+      createMockToolContext()
+    );
 
     expect(result.success).toBe(false);
     expect(result.error).toContain('channel_not_found');
@@ -106,170 +166,159 @@ describe('getChannelMessages', () => {
 });
 ```
 
----
+### Testing Tools That Use Vercel Connect Tokens
 
-## Testing Bot / Event Handlers
-
-### If using Chat SDK
+Tools that call third-party APIs get short-lived tokens via Vercel Connect. Mock `@vercel/connect` at the module boundary so no real token requests happen in tests:
 
 ```typescript
-import { describe, it, expect, vi } from 'vitest';
-import { createMockThread, createMockMessage } from './helpers/mock-thread';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { getToken } from '@vercel/connect';
+import createIssue from './create_issue';
+import { createMockToolContext } from '../__tests__/helpers/mock-context';
 
-describe('bot.onNewMention', () => {
-  it('should respond to mention and subscribe', async () => {
-    const thread = createMockThread();
-    const message = createMockMessage({ text: 'hello' });
+vi.mock('@vercel/connect', () => ({
+  getToken: vi.fn().mockResolvedValue('test-connect-token'),
+}));
 
-    await handleMention(thread, message);
-
-    expect(thread.subscribe).toHaveBeenCalled();
-    expect(thread.post).toHaveBeenCalled();
+describe('create_issue', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
   });
 
-  it('should handle mention in thread', async () => {
-    const thread = createMockThread({ threadTs: '123.400' });
-    const message = createMockMessage({ text: 'help' });
-
-    await handleMention(thread, message);
-
-    expect(thread.post).toHaveBeenCalled();
-  });
-});
-```
-
-### If using Bolt for JavaScript
-
-```typescript
-import { describe, it, expect, vi } from 'vitest';
-import { createMockSlackClient, createMockEvent } from './helpers/mock-client';
-
-describe('app_mention handler', () => {
-  it('should respond to mention in thread', async () => {
-    const client = createMockSlackClient();
-    const event = createMockEvent('app_mention', {
-      text: '<@U12345678> hello',
-      channel: 'C12345678',
-      ts: '123.456',
-    });
-
-    await handleAppMention({ event, client, say: vi.fn() });
-
-    expect(client.chat.postMessage).toHaveBeenCalledWith(
-      expect.objectContaining({
-        channel: 'C12345678',
-        thread_ts: '123.456',
-      })
+  it('should request a token and call the API', async () => {
+    const result = await createIssue.execute(
+      { title: 'Bug report' },
+      createMockToolContext()
     );
+
+    expect(getToken).toHaveBeenCalled();
+    expect(result.success).toBe(true);
+  });
+
+  it('should surface token failures as tool errors', async () => {
+    vi.mocked(getToken).mockRejectedValueOnce(new Error('unauthorized'));
+
+    const result = await createIssue.execute(
+      { title: 'Bug report' },
+      createMockToolContext()
+    );
+
+    expect(result.success).toBe(false);
+    expect(result.error).toContain('unauthorized');
   });
 });
 ```
 
 ---
 
-## Testing Slash Commands
+## Testing the Slack Channel
 
-### If using Chat SDK
+The channel adapter (`agent/channels/slack.ts`) is a config object produced by `slackChannel(...)`. Mock `eve/channels/slack` and `@vercel/connect/eve` so the test never resolves real credentials, then assert on the config and exercise any custom event handlers.
+
+### Channel Configuration
 
 ```typescript
+// agent/channels/slack.test.ts
 import { describe, it, expect, vi } from 'vitest';
-import { createMockSlashCommandEvent } from './helpers/mock-thread';
+import { connectSlackCredentials } from '@vercel/connect/eve';
 
-describe('/sample-command', () => {
-  it('should process command and respond', async () => {
-    const event = createMockSlashCommandEvent({
-      text: 'test input',
-      userId: 'U12345678',
-    });
+vi.mock('eve/channels/slack', () => ({
+  slackChannel: vi.fn((config) => config),
+}));
 
-    await handleSampleCommand(event);
+vi.mock('@vercel/connect/eve', () => ({
+  connectSlackCredentials: vi.fn(() => ({
+    botToken: 'xoxb-test-token',
+    webhookVerifier: vi.fn(),
+  })),
+}));
 
-    expect(event.thread.post).toHaveBeenCalledWith(
-      expect.stringContaining('Result')
+describe('slack channel', () => {
+  it('should resolve credentials from SLACK_CONNECTOR', async () => {
+    const channel = (await import('./slack')).default;
+
+    expect(connectSlackCredentials).toHaveBeenCalledWith(
+      process.env.SLACK_CONNECTOR
     );
-  });
-
-  it('should handle errors gracefully', async () => {
-    const event = createMockSlashCommandEvent({ text: '' });
-
-    await handleSampleCommand(event);
-
-    expect(event.thread.post).toHaveBeenCalledWith(
-      expect.stringContaining('went wrong')
-    );
+    expect(channel.credentials).toBeDefined();
   });
 });
 ```
 
-### If using Bolt for JavaScript
+### Custom Event Handlers
+
+Custom event handlers receive `(eventData, channel, ctx)` where `channel.thread` posts to the triggering Slack thread and `channel.slack.request` calls the raw Slack API. Mock that handle:
 
 ```typescript
-import { describe, it, expect, vi } from 'vitest';
+// agent/__tests__/helpers/mock-channel.ts
+import { vi } from 'vitest';
 
-describe('/sample-command', () => {
-  it('should ack and respond', async () => {
-    const ack = vi.fn();
-    const respond = vi.fn();
-    const command = {
-      text: 'test input',
-      user_id: 'U12345678',
-      channel_id: 'C12345678',
-      response_url: 'https://hooks.slack.com/commands/...',
-    };
+export function createMockChannelHandle(overrides = {}) {
+  return {
+    thread: {
+      post: vi.fn().mockResolvedValue(undefined),
+      mentionUser: vi.fn((userId: string) => `<@${userId}>`),
+    },
+    slack: {
+      request: vi.fn().mockResolvedValue({ ok: true }),
+    },
+    ...overrides,
+  };
+}
+```
 
-    await handleSampleCommand({ ack, command, respond });
+```typescript
+// agent/channels/slack.test.ts (continued)
+import { createMockChannelHandle } from '../__tests__/helpers/mock-channel';
 
-    expect(ack).toHaveBeenCalled();
-    expect(respond).toHaveBeenCalledWith(
-      expect.objectContaining({ text: expect.stringContaining('Result') })
+describe('message.completed handler', () => {
+  it('should post the completed message to the thread', async () => {
+    const channel = (await import('./slack')).default;
+    const handle = createMockChannelHandle();
+
+    channel.events['message.completed'](
+      { finishReason: 'stop', message: 'All done!' },
+      handle,
+      {}
     );
+
+    expect(handle.thread.post).toHaveBeenCalledWith('All done!');
+  });
+
+  it('should skip intermediate tool-call turns', async () => {
+    const channel = (await import('./slack')).default;
+    const handle = createMockChannelHandle();
+
+    channel.events['message.completed'](
+      { finishReason: 'tool-calls', message: 'thinking...' },
+      handle,
+      {}
+    );
+
+    expect(handle.thread.post).not.toHaveBeenCalled();
   });
 });
 ```
 
 ---
 
-## Testing Action Handlers
+## Testing Agent Configuration
 
-### If using Chat SDK
-
-```typescript
-import { describe, it, expect, vi } from 'vitest';
-import { createMockActionEvent } from './helpers/mock-thread';
-
-describe('button_click action', () => {
-  it('should handle button click', async () => {
-    const event = createMockActionEvent({
-      actionId: 'button_click',
-      value: 'clicked_value',
-    });
-
-    await handleButtonClick(event);
-
-    expect(event.thread.post).toHaveBeenCalled();
-  });
-});
-```
-
-### If using Bolt for JavaScript
+`agent/agent.ts` is a small config file, but a smoke test catches accidental model or option regressions:
 
 ```typescript
+// agent/agent.test.ts
 import { describe, it, expect, vi } from 'vitest';
 
-describe('button_click action', () => {
-  it('should ack and handle click', async () => {
-    const ack = vi.fn();
-    const client = createMockSlackClient();
-    const body = {
-      actions: [{ value: 'clicked_value' }],
-      channel: { id: 'C12345678' },
-      message: { ts: '123.456' },
-    };
+vi.mock('eve', () => ({
+  defineAgent: vi.fn((config) => config),
+}));
 
-    await handleButtonClick({ ack, body, client });
+describe('agent config', () => {
+  it('should use the default gateway model', async () => {
+    const agent = (await import('./agent')).default;
 
-    expect(ack).toHaveBeenCalled();
-    expect(client.chat.update).toHaveBeenCalled();
+    expect(agent.model).toBe('anthropic/claude-sonnet-5');
   });
 });
 ```
@@ -278,51 +327,39 @@ describe('button_click action', () => {
 
 ## E2E Testing Patterns
 
-### Full Message Flow (Chat SDK)
+Unit tests cover tools and handlers in isolation. For end-to-end verification, use eve's HTTP API against a running dev server (`npx eve dev --no-ui`) — no mocks:
 
-```typescript
-describe('E2E: Message Flow', () => {
-  it('should handle complete mention flow', async () => {
-    const thread = createMockThread();
-    const message = createMockMessage({ text: 'what channels am I in?' });
+```bash
+# Create a session and assert on the reply
+curl -X POST http://127.0.0.1:2000/eve/v1/session \
+  -H 'content-type: application/json' \
+  -d '{"message":"What is the weather in Brooklyn?"}'
 
-    await handleMention(thread, message);
-
-    expect(thread.subscribe).toHaveBeenCalled();
-    expect(thread.post).toHaveBeenCalled();
-  });
-
-  it('should handle conversation in thread', async () => {
-    const thread = createMockThread({ threadTs: '100.001' });
-
-    const mention = createMockMessage({ text: 'start a task' });
-    await handleMention(thread, mention);
-
-    const followUp = createMockMessage({ text: 'continue please' });
-    await handleSubscribedMessage(thread, followUp);
-
-    expect(thread.post).toHaveBeenCalledTimes(2);
-  });
-});
+# Stream events (NDJSON): session.started → actions.requested →
+# action.result → message.completed → session.completed
+curl http://127.0.0.1:2000/eve/v1/session/<sessionId>/stream
 ```
 
-### Full Message Flow (Bolt)
+Note: the Slack surface itself cannot be exercised locally — Slack events route through Vercel Connect to the deployed project. Test the Slack path against a preview or production deployment (`eve dev https://your-app.vercel.app` for an interactive smoke test); everything else works locally.
+
+### Multi-Turn Tool Flow (unit level)
 
 ```typescript
-describe('E2E: Message Flow', () => {
-  it('should handle mention and reply in thread', async () => {
-    const client = createMockSlackClient();
-    const event = createMockEvent('app_mention', {
-      text: '<@UBOT> what channels am I in?',
-      channel: 'C12345678',
-      ts: '100.001',
+describe('E2E: tool flow', () => {
+  it('should handle sequential tool calls in a session', async () => {
+    const ctx = createMockToolContext({
+      session: { metadata: {}, turn: 1, auth: {} },
     });
 
-    await handleAppMention({ event, client, say: vi.fn() });
+    const first = await getWeather.execute({ city: 'Brooklyn' }, ctx);
+    expect(first.city).toBe('Brooklyn');
 
-    expect(client.chat.postMessage).toHaveBeenCalledWith(
-      expect.objectContaining({ thread_ts: '100.001' })
-    );
+    const followUpCtx = createMockToolContext({
+      session: { metadata: {}, turn: 2, auth: {} },
+    });
+
+    const second = await getWeather.execute({ city: 'Queens' }, followUpCtx);
+    expect(second.city).toBe('Queens');
   });
 });
 ```
@@ -331,128 +368,52 @@ describe('E2E: Message Flow', () => {
 
 ## Mock Helpers
 
-### Chat SDK Mock Factories
+Keep all shared mocks in `agent/__tests__/helpers/` and mock at eve's module boundaries (`eve`, `eve/tools`, `eve/channels/slack`, `@vercel/connect`, `@vercel/connect/eve`) — never reach into framework internals.
 
 ```typescript
-// lib/__tests__/helpers/mock-thread.ts
+// agent/__tests__/setup.ts (excerpt — see templates/eve/test-setup.ts)
 import { vi } from 'vitest';
 
-export function createMockThread(overrides = {}) {
-  return {
-    post: vi.fn().mockResolvedValue(undefined),
-    subscribe: vi.fn().mockResolvedValue(undefined),
-    startTyping: vi.fn().mockResolvedValue(undefined),
-    state: {
-      get: vi.fn().mockResolvedValue(null),
-      set: vi.fn().mockResolvedValue(undefined),
-    },
-    channelId: 'C12345678',
-    threadTs: undefined,
-    ...overrides,
-  };
-}
+// Only Slack env var needed — Vercel Connect brokers credentials
+vi.stubEnv('SLACK_CONNECTOR', 'slack/test-agent');
+vi.stubEnv('AI_GATEWAY_API_KEY', 'test-ai-gateway-key');
 
-export function createMockMessage(overrides = {}) {
-  return {
-    text: 'test message',
-    userId: 'U12345678',
-    ts: '1234567890.123456',
-    ...overrides,
-  };
-}
+vi.mock('eve/tools', () => ({
+  defineTool: vi.fn((config) => config),
+}));
 
-export function createMockSlashCommandEvent(overrides = {}) {
-  return {
-    text: '',
-    userId: 'U12345678',
-    channelId: 'C12345678',
-    thread: createMockThread(),
-    openModal: vi.fn().mockResolvedValue(undefined),
-    ...overrides,
-  };
-}
+vi.mock('eve/channels/slack', () => ({
+  slackChannel: vi.fn((config) => config),
+  callSlackApi: vi.fn().mockResolvedValue({ ok: true }),
+  resolveSlackBotToken: vi.fn().mockResolvedValue('xoxb-test-token'),
+}));
 
-export function createMockActionEvent(overrides = {}) {
-  return {
-    actionId: '',
-    value: '',
-    userId: 'U12345678',
-    thread: createMockThread(),
-    ...overrides,
-  };
-}
+vi.mock('@vercel/connect', () => ({
+  getToken: vi.fn().mockResolvedValue('test-connect-token'),
+}));
+
+vi.mock('@vercel/connect/eve', () => ({
+  connectSlackCredentials: vi.fn(() => ({
+    botToken: 'xoxb-test-token',
+    webhookVerifier: vi.fn(),
+  })),
+  connect: vi.fn((connector) => ({ connector })),
+}));
 ```
 
-### Bolt Mock Factories
-
-```typescript
-// server/__tests__/helpers/mock-client.ts
-import { vi } from 'vitest';
-
-export function createMockSlackClient() {
-  return {
-    conversations: {
-      history: vi.fn().mockResolvedValue({ ok: true, messages: [], has_more: false }),
-      replies: vi.fn().mockResolvedValue({ ok: true, messages: [], has_more: false }),
-      join: vi.fn().mockResolvedValue({ ok: true, channel: { id: 'C12345678' } }),
-      list: vi.fn().mockResolvedValue({ ok: true, channels: [] }),
-      info: vi.fn().mockResolvedValue({ ok: true, channel: { id: 'C12345678', name: 'general' } }),
-    },
-    chat: {
-      postMessage: vi.fn().mockResolvedValue({ ok: true, ts: '1234567890.123456', channel: 'C12345678' }),
-      update: vi.fn().mockResolvedValue({ ok: true, ts: '1234567890.123456' }),
-      delete: vi.fn().mockResolvedValue({ ok: true }),
-    },
-    users: {
-      info: vi.fn().mockResolvedValue({ ok: true, user: { id: 'U12345678', name: 'testuser' } }),
-    },
-    reactions: {
-      add: vi.fn().mockResolvedValue({ ok: true }),
-      remove: vi.fn().mockResolvedValue({ ok: true }),
-    },
-    views: {
-      open: vi.fn().mockResolvedValue({ ok: true }),
-      update: vi.fn().mockResolvedValue({ ok: true }),
-      push: vi.fn().mockResolvedValue({ ok: true }),
-    },
-  };
-}
-
-export function createMockContext(overrides = {}) {
-  return {
-    channel_id: 'C12345678',
-    dm_channel: 'D12345678',
-    thread_ts: undefined,
-    is_dm: false,
-    team_id: 'T12345678',
-    user_id: 'U12345678',
-    ...overrides,
-  };
-}
-
-export function createMockEvent(type: string, overrides = {}) {
-  return {
-    type,
-    user: 'U12345678',
-    channel: 'C12345678',
-    ts: '1234567890.123456',
-    event_ts: '1234567890.123456',
-    ...overrides,
-  };
-}
-```
+Mocking `defineTool` as an identity function means importing a tool file in a test returns its config object directly — `description`, `inputSchema`, and `execute` are all inspectable.
 
 ---
 
 ## Test Coverage Guidelines
 
-Aim for these coverage targets (both frameworks):
+Aim for these coverage targets:
 
 | Category | Target |
 |----------|--------|
 | Tools | 90%+ |
 | Agent logic | 85%+ |
-| Event handlers | 80%+ |
+| Channel event handlers | 80%+ |
 | Utilities | 90%+ |
 | Overall | 80%+ |
 

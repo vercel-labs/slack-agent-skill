@@ -1,266 +1,213 @@
-# Slack App Setup Guide
+# Slack Setup Guide (Vercel Connect)
 
-Complete guide for creating and configuring a Slack app for your agent.
+Complete guide for connecting your eve agent to Slack using Vercel Connect.
+
+## How Slack Setup Works with Vercel Connect
+
+You do **not** create a Slack app at api.slack.com, paste a manifest, or copy bot tokens and signing secrets. Vercel Connect replaces that entire flow.
+
+**Vercel Connect** is a credential broker for agents and background services. Instead of storing long-lived provider secrets (bot tokens, API keys) in env vars, your code requests **short-lived, scoped tokens at runtime**. Every authorization and token request is recorded for auditing. For Slack, Connect is a **Vercel Managed Connector**: Vercel registers the Slack OAuth client, so you never handle client secrets at all.
+
+What this means in practice:
+
+- **No `SLACK_BOT_TOKEN`**. The eve Slack channel fetches a fresh short-lived token from Connect on each Slack API request.
+- **No `SLACK_SIGNING_SECRET`**. Slack delivers events to Connect's intake URL; Connect verifies them with Slack, then forwards them to your deployment. The channel's `webhookVerifier` confirms each forwarded event came from Connect — no Slack signature checks in your code.
+- **One env var**: `SLACK_CONNECTOR`, set to your connector's UID (e.g. `slack/my-agent`).
+
+Core concepts:
+
+| Concept | Meaning |
+|---------|---------|
+| **Connector** | A team-reusable registered connection to a provider, identified by UID like `slack/my-agent` (or ID like `scl_abc123`) |
+| **Installation** | A provider-side install for a tenant — for Slack, a workspace the connector is installed into |
+| **Connector-project link** | Binds a connector to a project and its enabled environments |
+| **Token request** | A runtime request for a short-lived scoped token |
+
+> **Beta note:** Vercel Connect is in beta (available on all plans); behavior may change before GA.
+
+> **CLI reference:** commands and flags shown here may evolve — see the [`vercel connect` CLI docs](https://vercel.com/docs/cli/connect) for the latest reference.
 
 ## Prerequisites
 
 - A Slack workspace where you have permission to install apps
-- Access to https://api.slack.com
-- Your project's `manifest.json` file
+- The latest Vercel CLI: `npm install -g vercel@latest`
+- Your project linked to Vercel (`vercel link`)
 
-## Step 1: Create the Slack App
+## Step 1: Create the Slack Connector
 
-1. Go to https://api.slack.com/apps/new
-2. Select **"From an app manifest"**
-3. Choose your target workspace from the dropdown
-4. Click **Next**
-
-### Configure the Manifest
-
-5. Switch to the **JSON** tab
-6. Delete any existing content
-7. Paste the contents of your project's `manifest.json`
-
-**The webhook URL depends on your framework:**
-
-- **Chat SDK:** `https://your-domain.vercel.app/api/webhooks/slack`
-- **Bolt for JavaScript:** `https://your-domain.vercel.app/api/slack/events`
-
-#### Sample Manifest (Chat SDK)
-
-```json
-{
-  "display_information": {
-    "name": "Your Slack Agent",
-    "description": "AI-powered assistant",
-    "background_color": "#000000"
-  },
-  "features": {
-    "app_home": {
-      "home_tab_enabled": true,
-      "messages_tab_enabled": true,
-      "messages_tab_read_only_enabled": false
-    },
-    "bot_user": {
-      "display_name": "Your Agent",
-      "always_online": true
-    }
-  },
-  "oauth_config": {
-    "scopes": {
-      "bot": [
-        "channels:history",
-        "channels:read",
-        "chat:write",
-        "commands",
-        "app_mentions:read",
-        "groups:history",
-        "im:history",
-        "mpim:history",
-        "assistant:write",
-        "reactions:read",
-        "reactions:write",
-        "channels:join"
-      ]
-    }
-  },
-  "settings": {
-    "event_subscriptions": {
-      "request_url": "https://your-domain.vercel.app/api/webhooks/slack",
-      "bot_events": [
-        "app_mention",
-        "assistant_thread_started",
-        "assistant_thread_context_changed",
-        "message.channels",
-        "message.groups",
-        "message.im",
-        "message.mpim",
-        "reaction_added"
-      ]
-    },
-    "interactivity": {
-      "is_enabled": true,
-      "request_url": "https://your-domain.vercel.app/api/webhooks/slack"
-    },
-    "org_deploy_enabled": false,
-    "socket_mode_enabled": false,
-    "token_rotation_enabled": false
-  }
-}
-```
-
-#### Sample Manifest (Bolt for JavaScript)
-
-Uses the same structure, but with a different webhook URL path:
-
-```json
-{
-  "settings": {
-    "event_subscriptions": {
-      "request_url": "https://your-domain.vercel.app/api/slack/events",
-      "bot_events": ["app_mention", "assistant_thread_started", "assistant_thread_context_changed", "message.channels", "message.groups", "message.im", "message.mpim"]
-    },
-    "interactivity": {
-      "is_enabled": true,
-      "request_url": "https://your-domain.vercel.app/api/slack/events"
-    }
-  }
-}
-```
-
-**Note:** The Chat SDK manifest includes `reactions:read` and `reactions:write` scopes for the `onReaction` handler. Add these to Bolt projects if you handle reaction events.
-
-8. Click **Next**
-9. Review the permissions and click **Create**
-
-## Step 2: Install to Workspace
-
-1. In your new app's dashboard, navigate to **Install App** in the sidebar
-2. Click **Install to Workspace**
-3. Review the permissions request
-4. Click **Allow**
-
-## Step 3: Get Your Credentials
-
-### Bot User OAuth Token
-
-1. Go to **Install App** in the sidebar
-2. Find **Bot User OAuth Token**
-3. Copy the token (starts with `xoxb-`)
-
-**Security:** Never commit this token to version control.
-
-### Signing Secret
-
-1. Go to **Basic Information** in the sidebar
-2. Scroll to **App Credentials**
-3. Find **Signing Secret**
-4. Click **Show** and copy the value
-
-## Step 4: Configure URLs (Production)
-
-For production deployments, update the URLs in your manifest and re-upload it:
-
-### Check for Deployment Protection
-
-If your Vercel project has Deployment Protection enabled, you'll need a bypass secret:
-
-1. Go to Vercel Dashboard -> Project Settings -> Deployment Protection
-2. Under "Protection Bypass for Automation", copy the secret
-3. Add it as a query parameter to your URLs:
-   - **Chat SDK:** `https://your-app.vercel.app/api/webhooks/slack?x-vercel-protection-bypass=YOUR_SECRET`
-   - **Bolt:** `https://your-app.vercel.app/api/slack/events?x-vercel-protection-bypass=YOUR_SECRET`
-
-### Update the Manifest
-
-1. Edit your project's `manifest.json`
-2. Update the URLs in these fields (using your framework's webhook path):
-   ```json
-   {
-     "settings": {
-       "event_subscriptions": {
-         "request_url": "https://your-app.vercel.app/api/webhooks/slack"
-       },
-       "interactivity": {
-         "request_url": "https://your-app.vercel.app/api/webhooks/slack"
-       }
-     }
-   }
-   ```
-   **Chat SDK** uses `/api/webhooks/slack`. **Bolt** uses `/api/slack/events`.
-3. Go to your app at https://api.slack.com/apps
-4. Navigate to **App Manifest** in the sidebar
-5. Switch to the **JSON** tab
-6. Replace the manifest with your updated version
-7. Click **Save Changes**
-
-This approach is more reliable than manually editing Event Subscriptions and Interactivity pages separately.
-
-## Step 5: Local Development Setup
-
-For local development, use ngrok to create a tunnel:
+Create the connector from the CLI (or from the Connect page in the Vercel dashboard):
 
 ```bash
-# Start your dev server
-pnpm dev
-
-# In a separate terminal, expose your local server
-ngrok http 3000
+vercel connect create slack --name my-agent --triggers
 ```
 
-Then update your Slack app's manifest with the ngrok URL:
-- **Chat SDK:** `https://abc123.ngrok.io/api/webhooks/slack`
-- **Bolt:** `https://abc123.ngrok.io/api/slack/events`
+- `--name` sets the connector UID suffix — the full UID becomes `slack/my-agent`.
+- `--triggers` enables Slack Event Subscriptions through Connect. **Without it, events like `app_mention` and `message.im` never arrive.**
+
+The CLI sets up the connection automatically and opens your browser for the steps that need manual input: installing the connector into your Slack workspace and selecting its bot scopes and trigger events. (Branding is optional — `--icon`, `--background-color`, `--accent-color` on `create`, or `vercel connect update` later.)
+
+### Recommended Bot Scopes
+
+| Scope | Purpose |
+|-------|---------|
+| `chat:write` | Send messages as the bot |
+| `channels:read` | View basic channel info |
+| `channels:history` | Read messages in public channels (thread context) |
+| `groups:history` | Read messages in private channels (thread context, if invited) |
+| `im:history` | Read direct messages — required for the DM handler (`onDirectMessage`) |
+| `mpim:history` | Read group DM history (thread context) |
+| `reactions:write` | Add emoji reactions |
+| `users:read` | Look up user display names |
+
+Notes:
+
+- `im:history` is required for the bot to respond to DMs (eve's `onDirectMessage` dispatch hook handles `message.im`).
+- The `*:history` scopes are what let eve's `threadContext` option load prior thread messages — each surface (public channel, private channel, DM, group DM) needs its matching history scope.
+- `im:write` is additionally needed if HITL handlers use `postDirectMessage`.
+- Request the minimum scopes your agent actually needs; the connector's bot scopes bound what any runtime token can do.
+
+### Trigger Events
+
+Subscribe the connector to the events your agent handles:
+
+- `app_mention` — @mentions of the bot in channels
+- `message.im` — direct messages to the bot
+- `message.channels`, `message.groups`, `message.mpim` — channel/group messages, if your agent listens beyond mentions
+
+## Step 2: Attach the Connector to Your Project
+
+Attach the connector to your project. The default trigger path is `/slack`, and eve serves its Slack channel at **`/eve/v1/slack`**, so set the path explicitly:
+
+```bash
+vercel connect attach slack/my-agent --triggers --trigger-path /eve/v1/slack --yes
+```
+
+- `--trigger-path /eve/v1/slack` — eve's canonical Slack route. Events forwarded anywhere else are dropped by your app.
+- `--trigger-branch` defaults to production; set it only if events should go to a different branch's deployments.
+- `--environment` (`-e`) restricts token access to specific environments (defaults to all).
+- A connector can forward triggers to up to three destination projects.
+- `vercel connect detach` removes token access but does **not** remove trigger destinations — manage those on the connector itself (`vercel connect open`).
+
+Verify with `vercel connect list` (alias `ls`). Other useful subcommands: `token`, `update`, `remove` (`rm`), `open`.
+
+### One Connector per Environment
+
+Use a separate connector for each environment (e.g. `slack/my-agent` for production, `slack/my-agent-dev` for previews). This keeps grants, scopes, and audit trails separate and prevents cross-environment token replay.
+
+## Step 3: Set the Environment Variable
+
+Set `SLACK_CONNECTOR` to the connector UID in your Vercel project (and `.env.local` for local work):
+
+```bash
+SLACK_CONNECTOR=slack/my-agent
+```
+
+This is the **only** Slack-related env var. Do not set `SLACK_BOT_TOKEN` or `SLACK_SIGNING_SECRET` — leaving them out avoids mixing verification modes.
+
+## Step 4: Wire the Channel in Your Agent
+
+Install the Connect SDK and register the Slack channel:
+
+```bash
+npm install @vercel/connect
+```
+
+```ts
+// agent/channels/slack.ts
+import { connectSlackCredentials } from "@vercel/connect/eve";
+import { slackChannel } from "eve/channels/slack";
+
+export default slackChannel({
+  credentials: connectSlackCredentials(
+    process.env.SLACK_CONNECTOR ?? "slack/my-agent"
+  ),
+});
+```
+
+The `slack.ts` filename registers the `slack` channel, served at `/eve/v1/slack`. `connectSlackCredentials` returns `{ botToken, webhookVerifier }`:
+
+- **`botToken`** is a resolver that fetches a fresh short-lived token via Connect on every Slack API request (subject pinned to the app, not a user).
+- **`webhookVerifier`** confirms each forwarded event genuinely came from Vercel Connect — this replaces Slack's signature/timestamp check in your code.
+
+In deployments, the Connect SDK authenticates using the OIDC token Vercel injects automatically (`VERCEL_OIDC_TOKEN`). For local dev, `vercel link` + `vercel env pull` fetches a short-lived dev token into `.env.local` (it expires after ~12 hours — re-pull when it does).
+
+## Step 5: Deploy and Invite the Bot
+
+Slack events forward to **deployments only, never localhost** — the Slack surface cannot be tested locally. Everything else (tools, skills, sessions) works in the local eve TUI.
+
+1. Deploy:
+   ```bash
+   eve deploy
+   ```
+   (`eve deploy` wraps `vercel deploy --prod`.)
+2. Invite the bot to a channel: `/invite @YourBotName`
+3. Mention it: `@YourBotName hello`
+
+## Installations and Workspaces
+
+Installing the connector into a Slack workspace creates an **installation**. Connect handles token rotation and multi-workspace tenancy for you. If a single connector spans multiple workspaces, pass an `installationId` when requesting tokens; with one workspace, no extra configuration is needed.
+
+You can inspect token issuance from the CLI:
+
+```bash
+vercel connect token slack/my-agent --subject app --scopes chat:write --format=json
+```
 
 ## Troubleshooting
 
-### "url_verification" failed
+### Events not arriving (no session starts on @mention)
 
-**Cause:** Slack couldn't verify your endpoint.
+**Causes and fixes:**
+1. Connector created or attached without `--triggers` — Event Subscriptions are off. Re-attach with `--triggers`.
+2. Wrong trigger path — must be `/eve/v1/slack`. Check with `vercel connect list`, and re-attach with `--trigger-path /eve/v1/slack` if not.
+3. Wrong trigger branch — `--trigger-branch` defaults to production; if you deployed to a preview branch, events won't reach it unless the branch matches.
+4. Deployment not finished (or failed) — Connect forwards to deployments only. Confirm the latest deploy succeeded.
+5. Missing trigger events — verify the connector is subscribed to `app_mention` (and `message.im` for DMs).
 
-**Solutions:**
-1. Ensure your server is running
-2. Check the URL is correct and accessible (Chat SDK: `/api/webhooks/slack`, Bolt: `/api/slack/events`)
-3. Verify your endpoint returns the `challenge` parameter correctly (both frameworks handle this automatically)
-4. If using Vercel with Deployment Protection, add the bypass secret to your URL (see Step 4)
+### Bot doesn't reply in a channel
 
-### "invalid_auth" errors
+**Cause:** The bot isn't a member of the channel.
 
-**Cause:** Bot token is invalid or expired.
+**Fix:** Invite it with `/invite @YourBotName`, then @mention it again. Also confirm the deployment finished.
 
-**Solutions:**
-1. Regenerate the token in **Install App**
-2. Verify you're using the correct token (not a user token)
-3. Check the token hasn't been revoked
+### Stuck on "Working…"
 
-### Events not being received
+**Cause:** The session started but something failed mid-turn (tool error, model auth, etc.).
 
-**Cause:** Event subscriptions not configured correctly.
+**Fix:** Inspect logs with `npx eve dev --logs all` (or `/loglevel all` in the TUI) against the deployed app to see the failing step.
 
-**Solutions:**
-1. Verify **Enable Events** is toggled On
-2. Check the Request URL is correct (Chat SDK: `/api/webhooks/slack`, Bolt: `/api/slack/events`)
-3. Ensure all required bot events are subscribed
-4. Check your server logs for incoming requests
+### Duplicate replies
+
+**Cause:** Connect's trigger forwarding has no built-in delivery de-duplication, so an event may occasionally be delivered more than once.
+
+**Fix:** Make handlers idempotent — e.g. track processed Slack event IDs and skip repeats.
+
+### Trying to test Slack locally
+
+Forwarding goes to deployments only — pointing anything at `localhost` will not work, and there is no ngrok step. Test the Slack surface against a preview or production deployment; use the local TUI for everything else.
 
 ### "channel_not_found" when joining channels
 
 **Cause:** Bot can't access private channels.
 
 **Solutions:**
-1. The bot can only join public channels
+1. The bot can only join public channels on its own
 2. For private channels, a user must invite the bot
 3. Check the channel ID is correct
 
 ### Rate limiting
 
-**Cause:** Too many API requests.
+**Cause:** Too many Slack API requests.
 
 **Solutions:**
 1. Implement exponential backoff
 2. Cache responses where appropriate
 3. Batch operations when possible
 
-## Required Bot Scopes Explained
-
-| Scope | Purpose |
-|-------|---------|
-| `channels:history` | Read messages in public channels |
-| `channels:read` | View basic channel info |
-| `chat:write` | Send messages as the bot |
-| `commands` | Handle slash commands |
-| `app_mentions:read` | Receive @mention events |
-| `groups:history` | Read messages in private channels (if invited) |
-| `im:history` | Read direct message history |
-| `mpim:history` | Read group DM history |
-| `assistant:write` | Use Slack's Assistant features |
-| `reactions:read` | Receive reaction events (for `onReaction` handler) |
-| `reactions:write` | Add emoji reactions |
-| `channels:join` | Join public channels |
-
 ## Next Steps
 
 After setup:
-1. Add the bot to a channel: `/invite @YourBotName`
-2. Mention the bot: `@YourBotName hello`
-3. Check your server logs to verify events are received
+1. Deploy with `eve deploy`
+2. Add the bot to a channel: `/invite @YourBotName`
+3. Mention the bot: `@YourBotName hello`
+4. Watch it think ("Thinking…" / "Working…") and reply in-thread

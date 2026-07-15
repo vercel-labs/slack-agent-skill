@@ -8,18 +8,16 @@ export default defineConfig({
     // Node environment for server-side code
     environment: 'node',
 
-    // Test file patterns
+    // Test file patterns — tests are co-located with agent code
     include: [
-      'server/**/*.test.ts',
-      'server/**/*.test.tsx',
-      'server/**/*.e2e.test.ts',
+      'agent/**/*.test.ts',
     ],
 
-    // Exclude patterns
+    // Exclude patterns (.eve/ holds build artifacts)
     exclude: [
       'node_modules',
-      '.nitro',
-      '.output',
+      '.eve',
+      '.vercel',
       'dist',
     ],
 
@@ -27,11 +25,11 @@ export default defineConfig({
     coverage: {
       provider: 'v8',
       reporter: ['text', 'json', 'html'],
-      include: ['server/**/*.ts'],
+      include: ['agent/**/*.ts'],
       exclude: [
-        'server/**/*.test.ts',
-        'server/**/*.d.ts',
-        'server/**/__tests__/**',
+        'agent/**/*.test.ts',
+        'agent/**/*.d.ts',
+        'agent/__tests__/**',
       ],
       // Coverage thresholds (adjust as needed)
       thresholds: {
@@ -43,7 +41,7 @@ export default defineConfig({
     },
 
     // Setup files run before each test file
-    setupFiles: ['./server/__tests__/setup.ts'],
+    setupFiles: ['./agent/__tests__/setup.ts'],
 
     // Timeout for async operations (ms)
     testTimeout: 10000,
